@@ -32,7 +32,13 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 		const int attrByteOffset,
 		const Datatype attrType)
 {
+	bufMgr = bufMgrIn;
+	attributeType = attrType;
+	this.attrByteOffset = attrByteOffset;
 
+	std::ostringstream idexStr;
+	idexStr << relationName << '.' << attrByteOffset;
+	std::string indexName = idxStr.str(); // indexName is the name of the index file
 }
 
 
