@@ -236,6 +236,7 @@ class File {
   friend class FileIterator;
 };
 
+// The PageFile class will store all the relations as we did in the buffer assignment.
 class PageFile : public File {
  public:
 
@@ -382,6 +383,12 @@ class PageFile : public File {
   friend class FileIterator;
 };
 
+// The BlobFile class implements the file interface for a file organization in which the pages in the file are not linked by prevPage/nextPage
+// links, as they are in the case of the PageFile class. When reading/writing pages, the BlobFile class treats the pages as blobs of 8KB size
+// and hence does not require these pages to be valid objects of the Page class.
+// We will use the BlobFile class to store the B+ index file, where every page in the file is a node from the B+ Tree. Since no other class 
+// requires BlobFile pages, we can modify these pages as we sish without worrying that these pages will not be valid after their arbitrary
+// modification.
 class BlobFile : public File {
  public:
 
