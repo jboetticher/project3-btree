@@ -133,6 +133,10 @@ void BTreeIndex::startScan(const void* lowValParm,
 				   const void* highValParm,
 				   const Operator highOpParm)
 {
+	if(lowValParm > highValParm) throw BadScanrangeException();
+
+	
+
 	/*
 	This method is used to begin a “filtered scan” of the index. For example, if the
 	method is called using arguments (1,GT,100,LTE), then the scan should seek all
