@@ -41,7 +41,6 @@ enum Operator
 	GT		/* Greater Than */
 };
 
-
 /**
  * @brief Number of key slots in B+Tree leaf for INTEGER key.
  */
@@ -53,6 +52,11 @@ const  int INTARRAYLEAFSIZE = ( Page::SIZE - sizeof( PageId ) ) / ( sizeof( int 
  */
 //                                                     level     extra pageNo                  key       pageNo
 const  int INTARRAYNONLEAFSIZE = ( Page::SIZE - sizeof( int ) - sizeof( PageId ) ) / ( sizeof( int ) + sizeof( PageId ) );
+
+/**
+ * @brief Order of the btree
+ */
+const  int d = (INTARRAYNONLEAFSIZE / 2);
 
 /**
  * @brief Structure to store a key-rid pair. It is used to pass the pair to functions that 
@@ -137,10 +141,26 @@ node they are. The level memeber of each non leaf structure seen below is set to
 at this level are just above the leaf nodes. Otherwise set to 0.
 */
 
+/*
+// Getting the page
+Page* p = &(blobFile.readPage());
+NonLeafNodeInt node = (NonLeafNodeInt)(p);
+node.level = 1;
+node.keyArray .... 
+
+// Setting the page
+node.level = 1 ...
+node.keyArray .... 
+
+// Writing the page
+page = (page) node
+blobFile.writePage(page)
+*/
+
 /**
  * @brief Structure for all non-leaf nodes when the key is of INTEGER type.
 */
-struct NonLeafNodeInt{
+struct NonLeafNodeInt {
   /**
    * Level of the node in the tree.
    */
@@ -218,6 +238,8 @@ class BTreeIndex {
    */
 	int 		attrByteOffset;
 
+
+  // let's just ignore these two for now
   /**
    * Number of keys in leaf node, depending upon the type of key.
    */
