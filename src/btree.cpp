@@ -45,33 +45,36 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 
 	// if indexName exists, then the file is opened. Else, a new index file is created.
 	try {
-		// index file already exists:
 		file = &BlobFile::open(indexName);
-
+		// index file already exists:
+		
 		// read meta info (btree.h:108)
 		IndexMetaInfo metaInfo = *(IndexMetaInfo*)(&file->readPage(0));
 		rootPageNum = metaInfo.rootPageNo;
-		file = &BlobFile::create(indexName);
+
+		// TODO : this shouldn't be necessary after calling open:
+		// file = &BlobFile::create(indexName); 
 	}
 	catch(FileNotFoundException exists) {
 		// index file doesn't already exist:
+		
+		// initialize meta info page
 		IndexMetaInfo newInfo;
-		newInfo.relationName = relationName;
+		strcpy(newInfo.relationName, relationName.c_str());
 		newInfo.attrByteOffset = attrByteOffset;
 		newInfo.attrType = attrType;
 		newInfo.rootPageNo = 1;
-
-		// hmmm
-		IndexMetaInfo *metaPtr = &newInfo;
-		Page* metaPage = (Page*) metaPtr;
-		file->writePage(0, metaPage);
-
-		NonLeafNodeInt root;
-		root.level = 0;
-		Page rootPage = (Page) root;
-		file->writePage(1, rootPage);
-
 		rootPageNum = 1;
+
+		// read meta info page to file
+		Page* metaPage = (Page*) &newInfo;
+		file->writePage(0, *metaPage);
+
+		// initialize root node
+		NonLeafNodeInt rootNode;
+		rootNode.level = 1;
+		Page* rootPage = (Page*) &rootNode;
+		file->writePage(1, *rootPage);
 	}
 
 
@@ -90,9 +93,9 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 			// INTEGER and whose byte offset is also know inside the record. 
 			std::string recordStr = scan.getRecord();
 			const char *record = recordStr.c_str();
-			int key = *((int *)(record + attrByteOffset))); // offsetof (attributeType, i)));
+			int key = *((int *)(record + attrByteOffset)); // offsetof (attributeType, i)));
 			
-			insertEntry(key, nextRec);
+			insertEntry(&key, nextRec);
 		}
 	}
 	catch(EndOfFileException end) {
@@ -120,10 +123,12 @@ BTreeIndex::~BTreeIndex()
 	
 
 	// unpinning any B+ tree pages that are pinned
-	startScan();
+	
+
+	
 
 	// flushing the index
-	bufMgr->flushFile();
+	bufMgr->flushFile(file);
 }
 
 // -----------------------------------------------------------------------------
@@ -147,7 +152,7 @@ void BTreeIndex::insertEntry(const void *key, const RecordId rid)
 	If leaf is full then split leaf, update parent non-leaf, and if root needs splitting then update metadata
 	Might have to keep track of height here
 	*/
-	// You have to add the node page to the buffer manager if there is space
+	// You have to add the node page to the buffer manager if there is space. Maybe use allocPage???
 	NonLeafNodeInt root = getRootNode();
 	
 	LeafNodeInt key_node;
@@ -158,12 +163,12 @@ void BTreeIndex::insertEntry(const void *key, const RecordId rid)
 	file->writePage(####, key_node);
 
 	if (key < root.keyArray[0]) {
-		for (int i = 0; i < INTARRAYLEAFSIZE; i++) {
-			if (root.pageNoArray[i] == NULL){
-				root.pageNoArray[i] = key_page.page_number();
-				break;}
-			else if(root.pageNoArray[INTARRAYLEAFSIZE] != NULL) {
-				
+		if (root.pageNoArray[0] == NULL){
+			root.pageNoArray[0] = key_page.page_number();
+		}
+		else {
+			if(key < getNonLeafNodeFromPage(root.pageNoArray[0]).keyArray[0]) {
+				getNonLeafNodeFromPage(root.pageNoArray[0]).
 			}
 		}
 	}
