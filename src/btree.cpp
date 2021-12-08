@@ -45,8 +45,15 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 
 	// if indexName exists, then the file is opened. Else, a new index file is created.
 	try {
-		file = &(BlobFile.create(indexName));
+		// index file already exists:
+		file = &BlobFile::open(indexName);
 
+		// read meta info (btree.h:108)
+		IndexMetaInfo metaInfo = static_cast<IndexMetaInfo>(file->readPage(0));
+		rootPageNum = metaInfo.rootPageNo;
+		file = &BlobFile::create(indexName);
+	}
+	catch(FileNotFoundException exists) {
 		// index file doesn't already exist:
 		IndexMetaInfo newInfo;
 		newInfo.relationName = relationName;
@@ -63,14 +70,6 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 		file->writePage(1, rootPage);
 
 		rootPageNum = 1;
-	}
-	catch(FileExistsException exists) {
-		// index file already exists:
-		file = &(BlobFile.open(indexName));
-
-		// read meta info (btree.h:108)
-		IndexMetaInfo metaInfo = (IndexMetaInfo)(file->readPage(0));
-		rootPageNum = metaInfo.rootPageNo;
 	}
 
 
@@ -159,18 +158,25 @@ void BTreeIndex::insertEntry(const void *key, const RecordId rid)
 	*/
 	NonLeafNodeInt root = getRootNode();
 	
-	if (BTreeIndex rootPageNum == NULL) {
-	NonLeafNodeInt root = getRootNode();
-	}
-	
-	if (key < rootPageNum) {
-		insertEntry()
+	LeafNodeInt for_key;
+	for_key.keyArray[0] = (int) &key;
+	for_key.ridArray[]
+	Page childPage = (Page) for_key;
+	file->writePage(1+1, for_key);
+
+	if (key < root.keyArray[0]) {
+		if (root.pageNoArray != NULL){
+			
+		}
+		else {
+			NonLeafNodeInt 
+			root.pageNoArray[0] = key
+		}
 	}
 	else if (key > rootPageNum)
 	{
 		
 	}
-	
 }
 
 /**
