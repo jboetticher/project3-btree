@@ -251,7 +251,8 @@ void BTreeIndex::startScan(const void* lowValParm,
 		if(nextNode.level + 1 == highestLevel) {
 			// if the next node is the last level, then the next level has leaf nodes.
 			PageId pageId = findLeastPageId(nextNode, lowValInt, lowOpParm);
-			Page* p = &file->readPage(pageId);
+			Page* p;
+			bufMgr->readPage(file, pageId, p);
 			leaf = *(LeafNodeInt*)p;
 
 			// it also happens to have the pageNum we're looking for
@@ -322,7 +323,7 @@ void BTreeIndex::scanNext(RecordId& outRid)
 
 		PageId nextPage = leaf.rightSibPageNo;
 		currentPageNum = nextPage;
-		currentPageData = &(file->readPage(nextPage));
+		bufMgr->readPage(file, nextPage, currentPageData);
 		nextEntry = 0;
 
 		// I'm getting recursive here. Not sure if I did the & right
