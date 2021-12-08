@@ -236,8 +236,8 @@ void BTreeIndex::startScan(const void* lowValParm,
 	*/
 
 	if(lowValParm > highValParm) throw BadScanrangeException();
-	if(lowOpParm != Operator.GT && lowOpParm != Operator.GTE) throw BadOpcodesException();
-	if(highOpParm != Operator.LT && highOpParm != Operator.LTE) throw BadOpcodesException();
+	if(lowOpParm != Operator::GT && lowOpParm != Operator::GTE) throw BadOpcodesException();
+	if(highOpParm != Operator::LT && highOpParm != Operator::LTE) throw BadOpcodesException();
 
 	// TODO: check if scan has already started?
 
@@ -261,7 +261,7 @@ void BTreeIndex::startScan(const void* lowValParm,
 			// if the next node is the last level, then the next level has leaf nodes.
 			PageId pageId = findLeastPageId(nextNode, lowValInt, lowOpParm);
 			Page* p = &(file->readPage(pageId));
-			leaf = (LeafNodeInt)(p);
+			leaf = LeafNodeInt(p);
 
 			// it also happens to have the pageNum we're looking for
 			currentPageNum = pageId;
@@ -281,10 +281,10 @@ void BTreeIndex::startScan(const void* lowValParm,
 		// Determine correct operator comparison
 		int key = leaf.keyArray[i];
 		bool comparison;
-		if(lowOp == Operator.GT) 
-			comparison = key > lowValParam;
-		else if(lowOp == Operator.GTE)
-			comparison = key >= lowValParam;
+		if(lowOp == Operator::GT) 
+			comparison = key > lowValParm;
+		else if(lowOp == Operator::GTE)
+			comparison = key >= lowValParm;
 
 		// sets the next entry + sets page data
 		if(comparison) {
@@ -320,7 +320,7 @@ void BTreeIndex::scanNext(RecordId& outRid)
 	
 	if(nextEntry < 0) throw IndexScanCompletedException();
 
-	LeafNodeInt leaf = (LeafNodeInt)(p);
+	LeafNodeInt leaf = (LeafNodeInt)(currentPageData);
 	int leafRidLength = sizeof(leaf.ridArray) / sizeof(leaf.ridArray[0]);
 
 	// move on to the next page, or throw an error
@@ -344,9 +344,9 @@ void BTreeIndex::scanNext(RecordId& outRid)
 	// startScan function. We only need to check lesser than.
 	int key = leaf.keyArray[nextEntry];
 	bool comparison;
-	if(highOp == Operator.LT) 
+	if(highOp == Operator::LT) 
 		comparison = key < highValInt;
-	else if(highOp == Operator.LTE)
+	else if(highOp == Operator::LTE)
 		comparison = key <= highValInt;
 
 	// if the comparison holds true, return it and go to the next entry.
