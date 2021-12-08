@@ -254,7 +254,7 @@ void BTreeIndex::startScan(const void* lowValParm,
 			// if the next node is the last level, then the next level has leaf nodes.
 			PageId pageId = findLeastPageId(nextNode, lowValInt, lowOpParm);
 			Page* p = &(file->readPage(pageId));
-			leaf = (LeafNodeInt)(p);
+			leaf = LeafNodeInt(p);
 
 			// it also happens to have the pageNum we're looking for
 			currentPageNum = pageId;
