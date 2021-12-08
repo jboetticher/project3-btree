@@ -160,7 +160,8 @@ void BTreeIndex::insertEntry(const void *key, const RecordId rid)
 	
 	LeafNodeInt for_key;
 	for_key.keyArray[0] = (int) &key;
-	for_key.ridArray[]
+	for_key.ridArray[0] = rid;
+
 	Page childPage = (Page) for_key;
 	file->writePage(1+1, for_key);
 
