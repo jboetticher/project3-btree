@@ -386,7 +386,31 @@ class BTreeIndex {
 	 * @throws ScanNotInitializedException If no scan has been initialized.
 	**/
 	void endScan();
-	
+
+  /**
+  * Finds the closest pageId to the query.
+  * 
+  * @param node the node whose children to search in
+  * @param lowValParam the low value to compare to
+  * @param greaterThan the greater value to compare to
+  * @return PageId the pageId of the page that might have the values desired
+  */
+  PageId findLeastPageId(NonLeafNodeInt node, int lowValParam, Operator greaterThan);
+
+  /**
+  * Gets the root node
+  * 
+  * @return NonLeafNodeInt 
+  */
+  NonLeafNodeInt getRootNode();
+
+	/**
+  * Gets a leaf node, assumes that it's a non leaf node.
+  * 
+  * @param pageId the pageId of the non leaf node
+  * @return NonLeafNodeInt the struct representing the non leaf node
+  */
+  NonLeafNodeInt BTreeIndex::getNonLeafNodeFromPage(PageId pageId);
 };
 
 }

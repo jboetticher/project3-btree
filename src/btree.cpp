@@ -36,7 +36,7 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 {
 	bufMgr = bufMgrIn;
 	attributeType = attrType; // should just be INTEGER
-	this.attrByteOffset = attrByteOffset;
+	BTreeIndex::attrByteOffset = attrByteOffset;
 
 	std::ostringstream idxStr;
 	idxStr << relationName << '.' << attrByteOffset;
@@ -49,7 +49,7 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 		file = &BlobFile::open(indexName);
 
 		// read meta info (btree.h:108)
-		IndexMetaInfo metaInfo = static_cast<IndexMetaInfo>(file->readPage(0));
+		IndexMetaInfo metaInfo = *(IndexMetaInfo*)(&file->readPage(0));
 		rootPageNum = metaInfo.rootPageNo;
 		file = &BlobFile::create(indexName);
 	}
@@ -60,8 +60,10 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 		newInfo.attrByteOffset = attrByteOffset;
 		newInfo.attrType = attrType;
 		newInfo.rootPageNo = 1;
-		
-		Page metaPage = (Page) newInfo;
+
+		// hmmm
+		IndexMetaInfo *metaPtr = &newInfo;
+		Page* metaPage = (Page*) metaPtr;
 		file->writePage(0, metaPage);
 
 		NonLeafNodeInt root;
@@ -128,23 +130,12 @@ BTreeIndex::~BTreeIndex()
 // BTreeIndex::insertEntry
 // -----------------------------------------------------------------------------
 
-/**
- * @brief Gets a leaf node, assumes that it's a non leaf node.
- * 
- * @param pageId the pageId of the non leaf node
- * @return NonLeafNodeInt the struct representing the non leaf node
- */
 NonLeafNodeInt BTreeIndex::getNonLeafNodeFromPage(PageId pageId) {
-	Page* p = &(file->readPage(pageId));
-	NonLeafNodeInt node = (NonLeafNodeInt)(p);
-	return node;
+	Page* p = &file->readPage(pageId);
+	NonLeafNodeInt* node = (NonLeafNodeInt*)p;
+	return *node;
 }
 
-/**
- * @brief Gets the root node
- * 
- * @return NonLeafNodeInt 
- */
 NonLeafNodeInt BTreeIndex::getRootNode() {
 	return getNonLeafNodeFromPage(rootPageNum);
 }
@@ -156,22 +147,24 @@ void BTreeIndex::insertEntry(const void *key, const RecordId rid)
 	If leaf is full then split leaf, update parent non-leaf, and if root needs splitting then update metadata
 	Might have to keep track of height here
 	*/
+	// You have to add the node page to the buffer manager if there is space
 	NonLeafNodeInt root = getRootNode();
 	
-	LeafNodeInt for_key;
-	for_key.keyArray[0] = (int) &key;
-	for_key.ridArray[0] = rid;
+	LeafNodeInt key_node;
+	key_node.keyArray[0] = *(int*)key;
+	key_node.ridArray[0] = rid;
 
-	Page childPage = (Page) for_key;
-	file->writePage(1+1, for_key);
+	Page key_page = (Page) key_node;
+	file->writePage(####, key_node);
 
 	if (key < root.keyArray[0]) {
-		if (root.pageNoArray != NULL){
-			
-		}
-		else {
-			NonLeafNodeInt 
-			root.pageNoArray[0] = key
+		for (int i = 0; i < INTARRAYLEAFSIZE; i++) {
+			if (root.pageNoArray[i] == NULL){
+				root.pageNoArray[i] = key_page.page_number();
+				break;}
+			else if(root.pageNoArray[INTARRAYLEAFSIZE] != NULL) {
+				
+			}
 		}
 	}
 	else if (key > rootPageNum)
@@ -180,24 +173,17 @@ void BTreeIndex::insertEntry(const void *key, const RecordId rid)
 	}
 }
 
-/**
- * @brief Finds the closest pageId to the query.
- * 
- * @param node the node whose children to search in
- * @param lowValParam the low value to compare to
- * @param greaterThan the greater value to compare to
- * @return PageId the pageId of the page that might have the values desired
- */
 PageId BTreeIndex::findLeastPageId(NonLeafNodeInt node, int lowValParam, Operator greaterThan) {
-	for (int i = 0; i < node.keyArray.length; i++)
+	int keyArrLength = sizeof(node.keyArray) / sizeof(node.keyArray[0]);
+	for (int i = 0; i < keyArrLength; i++)
 	{
 		int key = node.keyArray[i];
 		bool comparison;
 		
 		// Determine correct operator comparison
-		if(greaterThan == Operator.GT) 
+		if(greaterThan == Operator::GT) 
 			comparison = key > lowValParam;
-		else if(greaterThan == Operator.GTE)
+		else if(greaterThan == Operator::GTE)
 			comparison = key >= lowValParam;
 		else {
 			throw BadOpcodesException();
@@ -213,7 +199,7 @@ PageId BTreeIndex::findLeastPageId(NonLeafNodeInt node, int lowValParam, Operato
 			if(i > 0) return node.pageNoArray[i - 1];
 			else return node.pageNoArray[i];
 		}
-		else if(i == node.keyArray.length - 1) {
+		else if(i == keyArrLength - 1) {
 			// if it's the very last in the b+ tree, then we can only go to the very right.
 			return node.pageNoArray[i];
 		}
@@ -260,8 +246,8 @@ void BTreeIndex::startScan(const void* lowValParm,
 		if(nextNode.level + 1 == highestLevel) {
 			// if the next node is the last level, then the next level has leaf nodes.
 			PageId pageId = findLeastPageId(nextNode, lowValInt, lowOpParm);
-			Page* p = &(file->readPage(pageId));
-			leaf = LeafNodeInt(p);
+			Page* p = &file->readPage(pageId);
+			leaf = *(LeafNodeInt*)p;
 
 			// it also happens to have the pageNum we're looking for
 			currentPageNum = pageId;
@@ -282,9 +268,9 @@ void BTreeIndex::startScan(const void* lowValParm,
 		int key = leaf.keyArray[i];
 		bool comparison;
 		if(lowOp == Operator::GT) 
-			comparison = key > lowValParm;
+			comparison = key > lowValInt;
 		else if(lowOp == Operator::GTE)
-			comparison = key >= lowValParm;
+			comparison = key >= lowValInt;
 
 		// sets the next entry + sets page data
 		if(comparison) {
@@ -320,7 +306,7 @@ void BTreeIndex::scanNext(RecordId& outRid)
 	
 	if(nextEntry < 0) throw IndexScanCompletedException();
 
-	LeafNodeInt leaf = (LeafNodeInt)(currentPageData);
+	LeafNodeInt leaf = *(LeafNodeInt*)(currentPageData);
 	int leafRidLength = sizeof(leaf.ridArray) / sizeof(leaf.ridArray[0]);
 
 	// move on to the next page, or throw an error
@@ -331,7 +317,7 @@ void BTreeIndex::scanNext(RecordId& outRid)
 
 		PageId nextPage = leaf.rightSibPageNo;
 		currentPageNum = nextPage;
-		currentPageData = &(file.readPage(nextPage));
+		currentPageData = &(file->readPage(nextPage));
 		nextEntry = 0;
 
 		// I'm getting recursive here. Not sure if I did the & right
