@@ -117,7 +117,7 @@ void BufMgr::allocBuf(FrameId & frame)
   frame = clockHand;
 } // end allocBuf
 
-	
+
 void BufMgr::readPage(File* file, const PageId pageNo, Page*& page)
 {
   // check to see if it is already in the buffer pool

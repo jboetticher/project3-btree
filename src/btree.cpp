@@ -49,7 +49,9 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 		// index file already exists:
 		
 		// read meta info (btree.h:108)
-		IndexMetaInfo metaInfo = *(IndexMetaInfo*)(&file->readPage(0));
+		Page *metaPage;
+		bufMgr->readPage(file, 0, metaPage);
+		IndexMetaInfo metaInfo = *reinterpret_cast<IndexMetaInfo*>(metaPage);
 		rootPageNum = metaInfo.rootPageNo;
 
 		// TODO : this shouldn't be necessary after calling open:
@@ -67,14 +69,19 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 		rootPageNum = 1;
 
 		// read meta info page to file
-		Page* metaPage = (Page*) &newInfo;
+		Page* metaPage = reinterpret_cast<Page*>(&newInfo);
 		file->writePage(0, *metaPage);
 
 		// initialize root node
-		NonLeafNodeInt rootNode;
-		rootNode.level = 1;
-		Page* rootPage = (Page*) &rootNode;
-		file->writePage(1, *rootPage);
+		NonLeafNodeInt* rootNode;
+		rootNode->level = 1;
+		
+		Page* rootPage;
+		bufMgr->allocPage(file, rootPageNum, rootPage);
+		*rootPage = *reinterpret_cast<Page*>(rootNode);
+
+		// = (Page*) &rootNode;
+		// file->writePage(1, *rootPage);
 	}
 
 
@@ -93,7 +100,7 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 			// INTEGER and whose byte offset is also know inside the record. 
 			std::string recordStr = scan.getRecord();
 			const char *record = recordStr.c_str();
-			int key = *((int *)(record + attrByteOffset)); // offsetof (attributeType, i)));
+			int key = attrByteOffset + *reinterpret_cast<const int*>(record); // offsetof (attributeType, i)));
 			
 			insertEntry(&key, nextRec);
 		}
@@ -123,9 +130,16 @@ BTreeIndex::~BTreeIndex()
 	
 
 	// unpinning any B+ tree pages that are pinned
-	
+	try 
+	{
+		bufMgr->unPinPage(file, rootPageNum, false);
+	}
+	catch (const PageNotPinnedException &e) {
 
-	
+	}
+
+	// deletion of the file object
+	delete file;
 
 	// flushing the index
 	bufMgr->flushFile(file);
@@ -136,8 +150,9 @@ BTreeIndex::~BTreeIndex()
 // -----------------------------------------------------------------------------
 
 NonLeafNodeInt BTreeIndex::getNonLeafNodeFromPage(PageId pageId) {
-	Page* p = &file->readPage(pageId);
-	NonLeafNodeInt* node = (NonLeafNodeInt*)p;
+	Page* p;
+	bufMgr->readPage(file, pageId, p);
+	NonLeafNodeInt* node = reinterpret_cast<NonLeafNodeInt*>(p);
 	return *node;
 }
 
@@ -153,29 +168,38 @@ void BTreeIndex::insertEntry(const void *key, const RecordId rid)
 	Might have to keep track of height here
 	*/
 	// You have to add the node page to the buffer manager if there is space. Maybe use allocPage???
-	NonLeafNodeInt root = getRootNode();
+	// NonLeafNodeInt root = getRootNode();
+
+	RIDKeyPair<int> current_data_to_enter;
+	current_data_to_enter.set(rid, *((int *)key));
+
+	Page* rootPage;
+
+	bufMgr->readPage(file, rootPageNum, rootPage);
+  	PageKeyPair<int> *child_data = nullptr;
 	
-	LeafNodeInt key_node;
-	key_node.keyArray[0] = *(int*)key;
-	key_node.ridArray[0] = rid;
+	insert_function(rootPage, rootPageNum, initialRootPageNum == rootPageNum ? true : false, current_data_to_enter, child_data);
+}
 
-	Page key_page = (Page) key_node;
-	file->writePage(####, key_node);
+const void BtreeIndex::insert_function(Page *Page_currently, PageId Page_number_currently, bool is_leaf, const RIDKeyPair<int> current_data_to_enter
+, PageKeyPair<int> *&child_data){
+	if(!is_leaf) {
+		NonLeafNodeInt *Node_currently = (NonLeafNodeInt *)Page_currently;
+		Page *page_next;
+		PageId node_next_number;
+		findNextNonLeafNode(Node_currently, node_next_number, current_data_to_enter.key)
+	}
+}
 
-	if (key < root.keyArray[0]) {
-		if (root.pageNoArray[0] == NULL){
-			root.pageNoArray[0] = key_page.page_number();
-		}
-		else {
-			if(key < getNonLeafNodeFromPage(root.pageNoArray[0]).keyArray[0]) {
-				getNonLeafNodeFromPage(root.pageNoArray[0]).
-			}
-		}
+const void BTreeIndex::findNextNonLeafNode(NonLeafNodeInt *Node_currently, PageId &node_next_number, int key){
+	int i = 0;
+	while(i<=INTARRAYNONLEAFSIZE && (Node_currently->pageNoArray[i] == 0)) {
+		i++;
 	}
-	else if (key > rootPageNum)
-	{
-		
+	while(i<=INTARRAYNONLEAFSIZE && (Node_currently->keyArray[i] <= key)) {
+		i++;
 	}
+	node_next_number = Node_currently->pageNoArray[i];
 }
 
 PageId BTreeIndex::findLeastPageId(NonLeafNodeInt node, int lowValParam, Operator greaterThan) {
@@ -230,38 +254,45 @@ void BTreeIndex::startScan(const void* lowValParm,
 	if(lowOpParm != Operator::GT && lowOpParm != Operator::GTE) throw BadOpcodesException();
 	if(highOpParm != Operator::LT && highOpParm != Operator::LTE) throw BadOpcodesException();
 
-	// TODO: check if scan has already started?
-
 	scanExecuting = true;
 
 	// Sets data in the provided parameters for scanNext()
-	lowValInt	= *(int*)lowValParm;
-	highValInt	= *(int*)highValParm;
+	lowValInt	= *reinterpret_cast<const int*>(lowValParm);
+	highValInt	= *reinterpret_cast<const int*>(highValParm);
 	lowOp 		= lowOpParm;
 	highOp		= highOpParm;
 
 	// Get the root to start the scan
 	NonLeafNodeInt nextNode = getRootNode();
-	int highestLevel = 3; // TODO: find the highest level so that it can cast to leaf node
 	LeafNodeInt leaf;
+	PageId leafPageId = 0;
 
 	// scan continues until a proper leaf node is found
 	while (1)
 	{
-		if(nextNode.level + 1 == highestLevel) {
+		if(nextNode.level) {
 			// if the next node is the last level, then the next level has leaf nodes.
 			PageId pageId = findLeastPageId(nextNode, lowValInt, lowOpParm);
 			Page* p;
 			bufMgr->readPage(file, pageId, p);
-			leaf = *(LeafNodeInt*)p;
+			leaf = *reinterpret_cast<LeafNodeInt*>(p);
+
+			// if it's not the root, unpin the last nonleafnode
+			if(leafPageId > 0) {
+				bufMgr->unPinPage(file, leafPageId, false);
+			}
 
 			// it also happens to have the pageNum we're looking for
 			currentPageNum = pageId;
 			currentPageData = p;
-			break;
 		}
 		else {
 			PageId pageId = findLeastPageId(nextNode, lowValInt, lowOpParm);
+			// if it's not the root, unpin the last nonleafnode
+			if(leafPageId > 0) {
+				bufMgr->unPinPage(file, leafPageId, false);
+			}
+			leafPageId = pageId;
 			nextNode = getNonLeafNodeFromPage(pageId);
 		}
 	}
@@ -311,15 +342,23 @@ void BTreeIndex::scanNext(RecordId& outRid)
 	// did that, then you would do it in the second if statement (nextEntry >= leafRidLength).
 	
 	if(nextEntry < 0) throw IndexScanCompletedException();
+	if(!scanExecuting) throw ScanNotInitializedException();
 
-	LeafNodeInt leaf = *(LeafNodeInt*)(currentPageData);
+	LeafNodeInt leaf = *reinterpret_cast<LeafNodeInt*>(currentPageData);
 	int leafRidLength = sizeof(leaf.ridArray) / sizeof(leaf.ridArray[0]);
 
 	// move on to the next page, or throw an error
 	if(nextEntry >= leafRidLength) {
 		// I assume that if rightSibPageNo = 0, then it's "null", indicating that there
 		// is no next page. If that is the case, the scan must be done.
-		if(leaf.rightSibPageNo == 0) throw IndexScanCompletedException();
+		if(leaf.rightSibPageNo == 0) {
+			// unpins a page when scan has reached its end
+			bufMgr->unPinPage(file, currentPageNum, false);
+			throw IndexScanCompletedException();
+		}
+
+		// unpins a page when all records from it are read
+		bufMgr->unPinPage(file, currentPageNum, false);
 
 		PageId nextPage = leaf.rightSibPageNo;
 		currentPageNum = nextPage;
@@ -348,6 +387,8 @@ void BTreeIndex::scanNext(RecordId& outRid)
 		nextEntry++;
 	}
 	else {
+		// unpins a page when scan has reached its end
+		bufMgr->unPinPage(file, currentPageNum, false);
 		throw IndexScanCompletedException();
 	}
 }
@@ -369,6 +410,9 @@ void BTreeIndex::endScan()
 	}
 
 	// TODO: unpin all the pages
+	// in our current implementation, root is kept pinned until destructor is called
+	// no other pages are kept pinned throughout entirety of scan
+	// bufMgr->unPinPage(file, rootPageNum, false);
 
 	scanExecuting = false;
 }
