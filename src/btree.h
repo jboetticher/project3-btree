@@ -410,7 +410,7 @@ class BTreeIndex {
   * @param pageId the pageId of the non leaf node
   * @return NonLeafNodeInt the struct representing the non leaf node
   */
-  NonLeafNodeInt BTreeIndex::getNonLeafNodeFromPage(PageId pageId);
+  NonLeafNodeInt getNonLeafNodeFromPage(PageId pageId);
 };
 
 }

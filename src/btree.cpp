@@ -45,7 +45,8 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 
 	// if indexName exists, then the file is opened. Else, a new index file is created.
 	try {
-		file = &BlobFile::open(indexName);
+		BlobFile bf = BlobFile::open(indexName);
+		file = &bf;
 		// index file already exists:
 		
 		// read meta info (btree.h:108)
@@ -57,7 +58,7 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 		// TODO : this shouldn't be necessary after calling open:
 		// file = &BlobFile::create(indexName); 
 	}
-	catch(FileNotFoundException exists) {
+	catch(FileNotFoundException const&) {
 		// index file doesn't already exist:
 		
 		// initialize meta info page
@@ -105,7 +106,7 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 			insertEntry(&key, nextRec);
 		}
 	}
-	catch(EndOfFileException end) {
+	catch(EndOfFileException const&) {
 		std::cout << "Initial file scan of " << indexName << " finished.";
 	}
 }
@@ -128,15 +129,13 @@ BTreeIndex::~BTreeIndex()
 
 	// clearing up any state variables
 	
-
-	// unpinning any B+ tree pages that are pinned
-	try 
-	{
-		bufMgr->unPinPage(file, rootPageNum, false);
+	// ends scan if it is in progress
+	if(scanExecuting) {
+		endScan();
 	}
-	catch (const PageNotPinnedException &e) {
 
-	}
+	// unpin the root page. It should be the only page still pinned.
+	bufMgr->unPinPage(file, rootPageNum, false);
 
 	// deletion of the file object
 	delete file;
@@ -191,7 +190,7 @@ const void BtreeIndex::insert_function(Page *Page_currently, PageId Page_number_
 	}
 }
 
-const void BTreeIndex::findNextNonLeafNode(NonLeafNodeInt *Node_currently, PageId &node_next_number, int key){
+void BTreeIndex::findNextNonLeafNode(NonLeafNodeInt *Node_currently, PageId &node_next_number, int key){
 	int i = 0;
 	while(i<=INTARRAYNONLEAFSIZE && (Node_currently->pageNoArray[i] == 0)) {
 		i++;
