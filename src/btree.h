@@ -405,12 +405,32 @@ class BTreeIndex {
   NonLeafNodeInt getRootNode();
 
 	/**
-  * Gets a leaf node, assumes that it's a non leaf node.
+  * Reads a page into a non leaf node struct.
   * 
   * @param pageId the pageId of the non leaf node
-  * @return NonLeafNodeInt the struct representing the non leaf node
+  * @return NonLeafNodeInt the struct representing the non leaf
   */
   NonLeafNodeInt getNonLeafNodeFromPage(PageId pageId);
-};
 
+  void search(Page *Page_currently, PageId Page_number_currently, bool is_leaf, const RIDKeyPair<int> current_data_to_enter, PageKeyPair<int> *&child_data);
+
+  /**
+   * @brief The NextNonLeafNode grabs the current node and traverses through it's key array.
+   * It then compares them to the current key to find the appropriate page id to find the right nonleaf node
+   * 
+   * @param Node_currently 
+   * @param node_next_number 
+   * @param key 
+   */
+  void NextNonLeafNode(NonLeafNodeInt *Node_currently, PageId &node_next_number, int key);
+
+
+  /**
+   * @brief The insert_into_nonLeaf function searches through the given nonleaf to find the correct spot to enter in key and pageid.
+   * The keys and pageids after the key are shifted too.
+   * 
+   * @param Node_nonleaf 
+   * @param key_and_page 
+   */
+  void insert_into_nonleaf(NonLeafNodeInt *Node_nonleaf, PageKeyPair<int> *key_and_page);
 }
