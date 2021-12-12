@@ -395,7 +395,7 @@ class BTreeIndex {
   * @param greaterThan the greater value to compare to
   * @return PageId the pageId of the page that might have the values desired
   */
-  PageId findLeastPageId(NonLeafNodeInt node, int lowValParam, Operator greaterThan);
+  PageId findLeastPageId(NonLeafNodeInt node, int lowValParam);
 
   /**
   * Gets the root node
@@ -451,6 +451,33 @@ class BTreeIndex {
    * @param child_data The page and key pair to insert.
   */
   void split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old, PageKeyPair<int> *&child_data);
+
+  /**
+   * @brief 
+   * 
+   * @param node 
+   * @param data_to_enter 
+   */
+  void insert_into_leaf(LeafNodeInt node, RIDKeyPair<int> data_to_enter);
+  
+  /**
+   * @brief 
+   * 
+   * @param node_old 
+   * @param page_num_old 
+   * @param child_data 
+   * @param current_data_to_enter 
+   */
+  void split_leaf_node(LeafNodeInt node_old, PageId page_num_old, PageKeyPair<int> *&child_data, const RIDKeyPair<int> current_data_to_enter);
+
+  /**
+   * @brief 
+   * 
+   * @param left_page_id
+   * @param right_page_id
+   * @param push_up_data
+   */
+  pushupNonLeaf(PageId left_page_id, PageId right_page_id, PageKeyPair<int> push_up_data);
 };
 
 }

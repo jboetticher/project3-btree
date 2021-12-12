@@ -43,27 +43,23 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 	std::string indexName = idxStr.str(); // indexName is the name of the index file
 	outIndexName = indexName;
 
-	// if indexName exists, then the file is opened. Else, a new index file is created.
+	// If indexName exists, then the file is opened.
 	try {
 		BlobFile bf = BlobFile::open(indexName);
 		file = &bf;
-		// undefined. meant to be a field?
-		firstPageNo = file->getFirstPageNo();
-		// index file already exists:
+		// ERROR: undefined. meant to be a field?
+		headerPageNum = file->getFirstPageNo();
 		
 		// read meta info (btree.h:108)
 		Page *metaPage;
-		bufMgr->readPage(file, 0, metaPage);
+		bufMgr->readPage(file, headerPageNum, metaPage);
 		IndexMetaInfo metaInfo = *reinterpret_cast<IndexMetaInfo*>(metaPage);
-		rootPageNum = metaInfo.rootPageNo;
-
-		// TODO : this shouldn't be necessary after calling open:
-		// file = &BlobFile::create(indexName); 
+		headerPageNum = metaInfo.rootPageNo;
 	}
+	// If index file doesn't already exist, create new file.
 	catch(FileNotFoundException const&) {
-		// index file doesn't already exist:
-
-		file = &BlobFile::create(indexName);
+		BlobFile bf = BlobFile::create(indexName);
+		file = &bf;
 		
 		// initialize meta info page
 		IndexMetaInfo newInfo;
@@ -80,6 +76,9 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 		// initialize root node
 		NonLeafNodeInt* rootNode;
 		rootNode->level = 1;
+		initialRootPageNo = newInfo.rootPageNo;
+
+		// Why is there initialRootPageNo when we already have rootPageNum?
 		
 		Page* rootPage;
 		bufMgr->allocPage(file, rootPageNum, rootPage);
@@ -136,7 +135,7 @@ BTreeIndex::~BTreeIndex()
 		endScan();
 	}
 
-	// unpin the root page. It should be the only page still pinned.
+	// unpin the root page.
 	bufMgr->unPinPage(file, rootPageNum, false);
 
 	// flushing the index
@@ -170,8 +169,6 @@ void BTreeIndex::insertEntry(const void *key, const RecordId rid)
 	If leaf is full then split leaf, update parent non-leaf, and if root needs splitting then update metadata
 	Might have to keep track of height here
 	*/
-	// You have to add the node page to the buffer manager if there is space. Maybe use allocPage???
-	// NonLeafNodeInt root = getRootNode();
 
 	RIDKeyPair<int> current_data_to_enter;
 	current_data_to_enter.set(rid, *((int *)key));
@@ -182,15 +179,14 @@ void BTreeIndex::insertEntry(const void *key, const RecordId rid)
   	PageKeyPair<int> *child_data = nullptr;
 
 	bool is_leaf;
-	// have to make something for initialRootPageNum
-	if(initialRootPageNum == rootPageNum){
+	// ERROR: initialRootPageNum was never declared
+	if(initialRootPageNo == rootPageNum){
 		is_leaf = true;
 	}
 	else{is_leaf=false;}
 
 	search(rootPage, rootPageNum, is_leaf, current_data_to_enter, child_data);
 }
-//Under Construction
 void BTreeIndex::search(Page *Page_currently, PageId Page_number_currently, bool is_leaf, const RIDKeyPair<int> current_data_to_enter
 , PageKeyPair<int> *&child_data){
 	if(!is_leaf) {
@@ -204,7 +200,8 @@ void BTreeIndex::search(Page *Page_currently, PageId Page_number_currently, bool
 		// Recursive step
 		search(page_next, node_next_number, is_leaf, current_data_to_enter, child_data);
 
-		// Does not appear that child_data is ever set to a non-null value
+		// WARNING: Does not appear that child_data is ever set to a non-null value
+		// Line 177?
 		if (child_data == nullptr){
 			bufMgr->unPinPage(file,Page_number_currently,false);
 		}
@@ -215,27 +212,28 @@ void BTreeIndex::search(Page *Page_currently, PageId Page_number_currently, bool
 				bufMgr -> unPinPage(file,Page_number_currently,true);
 			}
 			else {
-				// making this now
-				split_nonleaf_node();
+				split_nonleaf_node(*Node_currently, Page_number_currently, child_data);
 			}
 		}
 
 	}
+	// If root page is not changed then 
 	else {
 		LeafNodeInt *leaf_node = reinterpret_cast<LeafNodeInt *>(Page_number_currently);
+		// Switch leafOccupancy with intarrayleafsize
+		// If not full then just inset into leaf
 		if (leaf_node->ridArray[leafOccupancy - 1].page_number == 0)
 			{
-			// Have to make this function
-			insert_into_leaf(leaf_node, current_data_to_enter);
+			insert_into_leaf(*leaf_node, current_data_to_enter);
 			bufMgr->unPinPage(file, Page_number_currently, true);
 			child_data = nullptr;
 			}
 		else {
-			// have to make this function
-			splitter_leaf(leaf_node, Page_number_currently, child_data, current_data_to_enter);
+			split_leaf_node(*leaf_node, Page_number_currently, child_data, current_data_to_enter);
 		}
 	}
 }
+
 void BTreeIndex::NextNonLeafNode(NonLeafNodeInt *Node_currently, PageId &child_pageId, int key){ // get non leaf child
 	int keyIndex = nodeOccupancy - 1;
 	// We traverse through the current node to find the last full key slot
@@ -246,7 +244,6 @@ void BTreeIndex::NextNonLeafNode(NonLeafNodeInt *Node_currently, PageId &child_p
 	while((keyIndex>0) && (Node_currently->keyArray[keyIndex] >= key)) {
 		keyIndex--;
 	}
-	while()
 	child_pageId = Node_currently->pageNoArray[keyIndex]; // child page id
 }
 
@@ -255,7 +252,7 @@ void BTreeIndex::insert_into_nonleaf(NonLeafNodeInt *Node_nonleaf, PageKeyPair<i
 	while((keyIndex >= 0) && (Node_nonleaf->pageNoArray[keyIndex] == 0)){
 		keyIndex--;
 	}
-	while((keyIndex > 0) && (Node_leaf->keyArray[keyIndex - 1] > key_and_page->key)){
+	while((keyIndex > 0) && (Node_nonleaf->keyArray[keyIndex - 1] > key_and_page->key)){
 		Node_nonleaf -> keyArray[keyIndex] = Node_nonleaf -> keyArray[keyIndex - 1];
 		Node_nonleaf -> pageNoArray[keyIndex + 1] = Node_nonleaf -> pageNoArray[keyIndex];
 		keyIndex--;
@@ -264,7 +261,22 @@ void BTreeIndex::insert_into_nonleaf(NonLeafNodeInt *Node_nonleaf, PageKeyPair<i
 	Node_nonleaf -> pageNoArray[keyIndex + 1] = key_and_page->pageNo;
 }
 
-// under construction
+void BTreeIndex::insert_into_leaf(LeafNodeInt node, RIDKeyPair<int> data_to_enter){
+	int i = INTARRAYLEAFSIZE;
+	// Traverse the node to find the first slot
+	while((i > 0) && (node.ridArray[i].page_number == 0)){
+		i--;
+	}
+	// Shifting all keys and records to the right of where data is entered
+	while((i>=0)&&(data_to_enter.key <= node.keyArray[i])){
+		node.keyArray[i + 1] = node.keyArray[i];
+		node.ridArray[i + 1] = node.ridArray[i];
+		i--;
+	}
+	node.keyArray[i+1] = data_to_enter.key;
+	node.ridArray[i+1] = data_to_enter.rid;
+}
+
 void BTreeIndex::split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old, PageKeyPair<int> *&child_data){
 	// We are initializing
 	PageId newNum;
@@ -275,8 +287,8 @@ void BTreeIndex::split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old
 	int middle_key = INTARRAYNONLEAFSIZE / 2;
 	PageKeyPair<int> pagekeypair_for_root;
 
-	// NOTE: could you explain why node_old->keyArray[middle_key] is the right value?
-	pagekeypair_for_root.set(newNum, node_old->keyArray[middle_key]);
+	// NOTE: could you explain why node_old.keyArray[middle_key] is the right value?
+	pagekeypair_for_root.set(newNum, node_old.keyArray[middle_key]);
 
 	
 	/*
@@ -284,8 +296,8 @@ void BTreeIndex::split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old
 		NOTE: 	I'm a little concerned about the pageNoArray. node_old keeps the right number of pageIds,
 				but node_new has one less than its supposed to. I'm not sure where the pageId is supposed to
 				come from.
-
-				2, 3, 5, 7
+					
+				 2, 3, 5, 7
 				  5 pId				
 		 2, 3				5, 7
 		3 pId				3 pId
@@ -295,75 +307,124 @@ void BTreeIndex::split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old
 		node_old becomes	2, 3	keeps 3 pointers
 		node_new becomes	5, 7	only gets 2 pointers
 	*/
-
+	// middle_key + 1 for odd nodes
+	// INTARRAYNONLEAFSIZE 
+	node_new->pageNoArray[middle_key]=node_old.pageNoArray[INTARRAYNONLEAFSIZE - 1];
 	// looping through a new node made and assigning the second half of the old node to the start of this node.
-	for(int i = middle_key; i < nodeOccupancy; i++){
+	for(int i = middle_key; i < INTARRAYNONLEAFSIZE; i++){
 		// node new is a new node created
 		// we will assign anything that is moved from old node to new --> 0
-		node_new->keyArray[i - middle_key] = node_old->keyArray[i];
-		node_old->keyArray[i] = 0;
-		node_new->pageNoArray[i - middle_key] = node_old->pageNoArray[i + 1];
-		node_old->pageNoArray[i + 1] = reinterpret_cast<PageId>(0);
+		node_new->keyArray[i - middle_key] = node_old.keyArray[i];
+		node_old.keyArray[i] = 0;
+		node_new->pageNoArray[i - middle_key] = node_old.pageNoArray[i];
+		node_old.pageNoArray[i + 1] = static_cast<PageId>(0);
 	}
-	node_new->level = node_old->level;
+	node_new->level = node_old.level;
 
 	// If the key we want to insert is less than the 1st entry in node_new then it belongs to node_old.
 	// Otherwise it belongs to node_new.
 	// We use insert_into_nonleaf to find the right spot in the node to put in the key/pageid
-	if(key < node_new->keyArray[0]){
-		insert_into_nonleaf(node_old, child_data);
+	if(child_data->key < node_new->keyArray[0]){
+		insert_into_nonleaf(&node_old, child_data);
 	}
-	else if(key >= node_new->keyArray[0]){
+	else if(child_data->key >= node_new->keyArray[0]){
 		insert_into_nonleaf(node_new, child_data);
 	}
 	child_data = &pagekeypair_for_root;
 
 	// Unpins the pages that we don't need anymore, including the new page we just made.
 	bufMgr->unPinPage(file, page_num_old, true);
-	bufMgr->unPinPage(file, newP, true);
+	bufMgr->unPinPage(file, newP->page_number(), true);
 
 	//splitting becomes tricky when we are at root.
 	//if we split at root then the old root (node_old) is not the true root
 	//if we are splitting at the root, then we must update root
 
 	if(page_num_old == rootPageNum) {
-		//gotta make this
-		root_change(page_num_old, child_data);
+		pushupNonLeaf(page_num_old, *child_data);
 	}
 }
 
-void BTreeIndex::root_change(PageId root_pageid, PageKeyPair<int> child_data){
-	Page *newrootpage;
-	PageId newrootpageid;
-	bufMgr->allocPage(file, newrootpageid, newrootpage);
+void BTreeIndex::pushupNonLeaf(PageId left_page_id, PageId right_page_id, PageKeyPair<int> push_up_data){
+	Page *new_parent;
+	PageId new_parent_id; 
+	bufMgr->allocPage(file, new_parent_id, *new_parent);
 	NonLeafNodeInt *newrootnode = (NonLeafNodeInt *)newrootpage;
 	
-	// initialRootPageNum undefined
-	if(initialRootPageNum == newrootpageid){
-		initialRootPageNum->level = 1;
+	if(initialRootPageNo == newrootpageid){
+		newrootnode->level = 1;
 	}
 	else{
-		initialRootPageNum->level = 0;
+		newrootnode->level = 0;
 	}
+
 	newrootnode->pageNoArray[0]= root_pageid;
-	// changed from newrootpage to newrootnode
-	newrootnode->pageNoArray[1] = child_data->pageNo;
-	newrootnode->keyArray[0] = newchildEntry->key;
+	newrootnode->pageNoArray[1] = child_data.pageNo;
+	newrootnode->keyArray[0] = child_data.key;
 
 	Page *meta_page;
-	bufMgr->readPage(file, firstPageNo, meta_page);
+
+	bufMgr->readPage(file, headerPageNum, meta_page);
 	IndexMetaInfo *metaInfoPage = (IndexMetaInfo *)meta_page;
   	metaInfoPage->rootPageNo = newrootpageid;
   	rootPageNum = newrootpageid;
-	bufMgr->unPinPage(file,firstPageNo,true);
-	bufMgr->unPinPage(file,newrootpageid,true);
+	bufMgr->unPinPage(file, headerPageNum, true);
+	bufMgr->unPinPage(file, newrootpageid, true);
 }
 
-// This might be able to replace find next nonleaf node function
+void BTreeIndex::split_leaf_node(LeafNodeInt node_old, PageId page_num_old, PageKeyPair<int> *&child_data, const RIDKeyPair<int> current_data_to_enter){
+	// We are initializing
+	PageId newNum;
+	Page* newP;
+	bufMgr->allocPage(file, newNum, newP);
+	LeafNodeInt *node_new = reinterpret_cast<LeafNodeInt *>(newP);
+	// INTARRAYLEAFSIZE might be accessible form namespace. We have to check through compiler
+	int middle_key = INTARRAYLEAFSIZE / 2;
+	PageKeyPair<int> pagekeypair_for_root;
+
+	// NOTE: could you explain why node_old.keyArray[middle_key] is the right value?
+	pagekeypair_for_root.set(newNum, node_old.keyArray[middle_key]);
+
+	for(int i = middle_key; i < INTARRAYLEAFSIZE; i++){
+		// the last full pointer in node_new is missing
+		// node new is a new node created
+		// we will assign anything that is moved from old node to new --> 0
+		node_new->keyArray[i - middle_key] = node_old.keyArray[i];
+		node_old.keyArray[i] = 0;
+		node_new->ridArray[i - middle_key] = node_old.ridArray[i+1];
+		// ERROR: RecordId is a struct, so simply casting to 0 won't work. How does the other github file do it?
+		node_old.ridArray[i + 1] = reinterpret_cast<RecordId>(0);
+	}
+
+	// If the key we want to insert is less than the 1st entry in node_new then it belongs to node_old.
+	// Otherwise it belongs to node_new.
+	// We use insert_into_nonleaf to find the right spot in the node to put in the key/pageid
+	if(current_data_to_enter.key < node_new->keyArray[0]){
+		insert_into_leaf(node_old, current_data_to_enter);
+	}
+	else if(current_data_to_enter.key >= node_new->keyArray[0]){
+		insert_into_leaf(*node_new, current_data_to_enter);
+	}
+	
+	node_new->rightSibPageNo = node_old.rightSibPageNo;
+	node_old.rightSibPageNo = newNum;
+
+	//splitting becomes tricky when we are at root.
+	//if we split at root then the old root (node_old) is not the true root
+	//if we are splitting at the root, then we must update root
+	if(page_num_old == rootPageNum) {
+		child_data = &pagekeypair_for_root;
+		root_change(page_num_old, *child_data);
+	}
+
+	// Unpins the pages that we don't need anymore, including the new page we just made.
+	bufMgr->unPinPage(file, page_num_old, true);
+	bufMgr->unPinPage(file, newP->page_number(), true);
+}
+
 // took out operator parameter
 PageId BTreeIndex::findLeastPageId(NonLeafNodeInt node, int lowValParam) {
-	// Is this nodeOccupancy?
-	// probably not, nodeOccupancy should be current number of keys in node, not total capacity
+
 	int keyArrLength = sizeof(node.keyArray) / sizeof(node.keyArray[0]);
 	int key; 
 	
