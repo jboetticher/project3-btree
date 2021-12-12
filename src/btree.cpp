@@ -47,6 +47,7 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 	try {
 		BlobFile bf = BlobFile::open(indexName);
 		file = &bf;
+		// undefined. meant to be a field?
 		firstPageNo = file->getFirstPageNo();
 		// index file already exists:
 		
@@ -187,7 +188,7 @@ void BTreeIndex::insertEntry(const void *key, const RecordId rid)
 	}
 	else{is_leaf=false;}
 
-	search(rootPage, rootPageNum, isleaf, current_data_to_enter, child_data);
+	search(rootPage, rootPageNum, is_leaf, current_data_to_enter, child_data);
 }
 //Under Construction
 void BTreeIndex::search(Page *Page_currently, PageId Page_number_currently, bool is_leaf, const RIDKeyPair<int> current_data_to_enter
@@ -203,6 +204,7 @@ void BTreeIndex::search(Page *Page_currently, PageId Page_number_currently, bool
 		// Recursive step
 		search(page_next, node_next_number, is_leaf, current_data_to_enter, child_data);
 
+		// Does not appear that child_data is ever set to a non-null value
 		if (child_data == nullptr){
 			bufMgr->unPinPage(file,Page_number_currently,false);
 		}
@@ -266,8 +268,8 @@ void BTreeIndex::insert_into_nonleaf(NonLeafNodeInt *Node_nonleaf, PageKeyPair<i
 void BTreeIndex::split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old, PageKeyPair<int> *&child_data){
 	// We are initializing
 	PageId newNum;
-	Page newP;
-	BufMgr->allocPage(file, newNum, newP);
+	Page* newP;
+	bufMgr->allocPage(file, newNum, newP);
 	NonLeafNodeInt *node_new = reinterpret_cast<NonLeafNodeInt *>(newP);
 	// INTARRAYNONLEAFSIZE might be accessible form namespace. We have to check through compiler
 	int middle_key = INTARRAYNONLEAFSIZE / 2;
@@ -295,7 +297,7 @@ void BTreeIndex::split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old
 	*/
 
 	// looping through a new node made and assigning the second half of the old node to the start of this node.
-	for(int i = middle_key, i < nodeOccupancy, i++){
+	for(int i = middle_key; i < nodeOccupancy; i++){
 		// node new is a new node created
 		// we will assign anything that is moved from old node to new --> 0
 		node_new->keyArray[i - middle_key] = node_old->keyArray[i];
@@ -317,8 +319,8 @@ void BTreeIndex::split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old
 	child_data = &pagekeypair_for_root;
 
 	// Unpins the pages that we don't need anymore, including the new page we just made.
-	BufMgr->unPinPage(file, page_num_old, true);
-	BufMgr->unPinPage(file, newP, true);
+	bufMgr->unPinPage(file, page_num_old, true);
+	bufMgr->unPinPage(file, newP, true);
 
 	//splitting becomes tricky when we are at root.
 	//if we split at root then the old root (node_old) is not the true root
@@ -328,15 +330,15 @@ void BTreeIndex::split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old
 		//gotta make this
 		root_change(page_num_old, child_data);
 	}
-	
 }
 
 void BTreeIndex::root_change(PageId root_pageid, PageKeyPair<int> child_data){
 	Page *newrootpage;
 	PageId newrootpageid;
-	BufMgr->allocPage(file, newrootpageid, newrootpage);
+	bufMgr->allocPage(file, newrootpageid, newrootpage);
 	NonLeafNodeInt *newrootnode = (NonLeafNodeInt *)newrootpage;
 	
+	// initialRootPageNum undefined
 	if(initialRootPageNum == newrootpageid){
 		initialRootPageNum->level = 1;
 	}
@@ -344,8 +346,9 @@ void BTreeIndex::root_change(PageId root_pageid, PageKeyPair<int> child_data){
 		initialRootPageNum->level = 0;
 	}
 	newrootnode->pageNoArray[0]= root_pageid;
-	newRootPage->pageNoArray[1] = child_data->pageNo;
-	newRootPage->keyArray[0] = newchildEntry->key;
+	// changed from newrootpage to newrootnode
+	newrootnode->pageNoArray[1] = child_data->pageNo;
+	newrootnode->keyArray[0] = newchildEntry->key;
 
 	Page *meta_page;
 	bufMgr->readPage(file, firstPageNo, meta_page);
@@ -357,8 +360,10 @@ void BTreeIndex::root_change(PageId root_pageid, PageKeyPair<int> child_data){
 }
 
 // This might be able to replace find next nonleaf node function
-PageId BTreeIndex::findLeastPageId(NonLeafNodeInt node, int lowValParam, Operator greaterThan) {
+// took out operator parameter
+PageId BTreeIndex::findLeastPageId(NonLeafNodeInt node, int lowValParam) {
 	// Is this nodeOccupancy?
+	// probably not, nodeOccupancy should be current number of keys in node, not total capacity
 	int keyArrLength = sizeof(node.keyArray) / sizeof(node.keyArray[0]);
 	int key; 
 	
@@ -406,7 +411,7 @@ void BTreeIndex::startScan(const void* lowValParm,
 	while (1)
 	{
 		// if the next node is the last level, then the next level has leaf nodes.
-		PageId pageId = findLeastPageId(nextNode, lowValInt, lowOpParm);
+		PageId pageId = findLeastPageId(nextNode, lowValInt);
 		
 		if(nextNode.level) {
 			Page* p;
