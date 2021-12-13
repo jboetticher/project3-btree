@@ -239,6 +239,7 @@ class BTreeIndex {
 	int 		attrByteOffset;
 
 
+
   // let's just ignore these two for now
   /**
    * Number of keys in leaf node, depending upon the type of key.
@@ -475,9 +476,10 @@ class BTreeIndex {
    * 
    * @param left_page_id
    * @param right_page_id
+   * @param key
    * @param push_up_data
    */
-  pushupNonLeaf(PageId left_page_id, PageId right_page_id, PageKeyPair<int> push_up_data);
+  void pushupNonLeaf(PageId left_page_id, PageId right_page_id, int key);
 };
 
 }
