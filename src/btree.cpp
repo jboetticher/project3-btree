@@ -164,81 +164,101 @@ void BTreeIndex::insertEntry(const void *key, const RecordId rid)
 	/*
 	Start from root and recursively search for which leaf key belongs to
 	If leaf is full then split leaf, update parent non-leaf, and if root needs splitting then update metadata
-	Might have to keep track of height here
 	*/
 
+	// Creates the RIDKeyPair that we're going to enter into the tree.
 	RIDKeyPair<int> current_data_to_enter;
 	current_data_to_enter.set(rid, *((int *)key));
 
+	// We start our search at the root.
 	Page* rootPage;
-
 	bufMgr->readPage(file, rootPageNum, rootPage);
+	bool is_leaf = getRootNode().level == 1;
   	PageKeyPair<int> *child_data = nullptr;
 
-	// ERROR: initialRootPageNum was never declared
+	// Begin search & insert
+	search(rootPage, is_leaf, current_data_to_enter, child_data);
 	
-	bool is_leaf = getRootNode().level == 1;
-
-	search(rootPage, rootPageNum, is_leaf, current_data_to_enter, child_data);
 }
 
-void BTreeIndex::search(Page *Page_currently, PageId Page_number_currently, bool is_leaf, const RIDKeyPair<int> current_data_to_enter
-, PageKeyPair<int> *&child_data){
-	// If this node does not have a child leaf node
+void BTreeIndex::search(
+	Page* Page_currently, 
+	bool is_leaf, 
+	const RIDKeyPair<int> current_data_to_enter, 
+	PageKeyPair<int> *&child_data)
+{
+	// NOTE: 	should be potentially renamed search_and_insert, or something along those lines. Readers
+	// 			may initially assume that this is just scanning, instead of also writing.
+	PageId pageId_currently = Page_currently->page_number();
+	
+	// If this is a nonleaf node, then we have to drill down through its children to keep searching 
+	// for the right leaf node.
 	if(!is_leaf) {
 		NonLeafNodeInt *Node_currently = reinterpret_cast<NonLeafNodeInt *>(Page_currently);
 		Page *page_next;
 		PageId node_next_number;
-		// finds which child node key belongs to and sets it to node_next_number
-		NextNonLeafNode(Node_currently, node_next_number, current_data_to_enter.key);
+		
+		// Finds which child node key belongs to and sets it to node_next_number
+		nextNonLeafNode(Node_currently, node_next_number, current_data_to_enter.key);
 		bufMgr->readPage(file, node_next_number, page_next);
 		is_leaf = Node_currently->level == 1;
 
-		// Recursive step
-		search(page_next, node_next_number, is_leaf, current_data_to_enter, child_data);
+		// Recursive search to until the leaf node
+		search(page_next, is_leaf, current_data_to_enter, child_data);
 
-		// WARNING: Does not appear that child_data is ever set to a non-null value
-		// Line 177?
-		if (child_data == nullptr){
-			bufMgr->unPinPage(file,Page_number_currently,false);
-		}
-		else{
-			if(Node_currently->pageNoArray[nodeOccupancy]==0){
+		// If child_data is null, then there is no pushup from a split_leaf_node.
+		// Otherwise, the child_data must be updated.
+		if(child_data != nullptr) {
+			
+			// If it's not full then insert in child data
+			if(Node_currently->pageNoArray[INTARRAYNONLEAFSIZE - 1] == 0){
 				insert_into_nonleaf(Node_currently, child_data);
 				child_data == nullptr;
-				bufMgr -> unPinPage(file,Page_number_currently,true);
+				bufMgr -> unPinPage(file, pageId_currently, true);
 			}
+
+			// Otherwise we will need to use the split algorithm
 			else {
-				split_nonleaf_node(*Node_currently, Page_number_currently, child_data);
+				split_nonleaf_node(*Node_currently, pageId_currently, child_data);
 			}
+			
+		}
+		else {
+			bufMgr->unPinPage(file, pageId_currently, false);
+		}
+	}
+
+	// When we find the proper leaf node, we insert into it
+	else {
+		LeafNodeInt *leaf_node = reinterpret_cast<LeafNodeInt *>(pageId_currently);
+		
+		// If it's not full then just insert into leaf node
+		if (leaf_node->ridArray[INTARRAYLEAFSIZE - 1].page_number == 0)
+		{
+			insert_into_leaf(*leaf_node, current_data_to_enter);
+			bufMgr->unPinPage(file, pageId_currently, true);
+
+			// Here we set the child_data to null, indicating that we do not have to split
+			// nonleaf nodes, and there is nothing being pushed up.
+			child_data = nullptr;
 		}
 
-	}
-	// If root page is not changed then 
-	else {
-		LeafNodeInt *leaf_node = reinterpret_cast<LeafNodeInt *>(Page_number_currently);
-		// Switch leafOccupancy with intarrayleafsize
-		// If not full then just insert into leaf
-		if (leaf_node->ridArray[leafOccupancy - 1].page_number == 0)
-			{
-			insert_into_leaf(*leaf_node, current_data_to_enter);
-			bufMgr->unPinPage(file, Page_number_currently, true);
-			child_data = nullptr;
-			}
+		// Otherwise we will need to use the split algorithm. This will cause a value to be
+		// pushed up, meaning that child_data will not be null.
 		else {
-			split_leaf_node(*leaf_node, Page_number_currently, child_data, current_data_to_enter);
+			split_and_insert_leaf_node(*leaf_node, pageId_currently, child_data, current_data_to_enter);
 		}
 	}
 }
 
-void BTreeIndex::NextNonLeafNode(NonLeafNodeInt *Node_currently, PageId &child_pageId, int key){ // get non leaf child
+void BTreeIndex::nextNonLeafNode(NonLeafNodeInt *Node_currently, PageId &child_pageId, int key){ // get non leaf child
 	int keyIndex = nodeOccupancy - 1;
 	// We traverse through the current node to find the last full key slot
-	while((keyIndex>=0) && (Node_currently->pageNoArray[keyIndex] == 0)) {
+	while((keyIndex >= 0) && (Node_currently->pageNoArray[keyIndex] == 0)) {
 		keyIndex--;
 	}
 	// Then we traverse through the non-empty current node to find the last key that is greater than key we want to enter in
-	while((keyIndex>0) && (Node_currently->keyArray[keyIndex] >= key)) {
+	while((keyIndex > 0) && (Node_currently->keyArray[keyIndex] >= key)) {
 		keyIndex--;
 	}
 	child_pageId = Node_currently->pageNoArray[keyIndex]; // child page id
@@ -247,20 +267,21 @@ void BTreeIndex::NextNonLeafNode(NonLeafNodeInt *Node_currently, PageId &child_p
 void BTreeIndex::insert_into_nonleaf(NonLeafNodeInt *Node_nonleaf, PageKeyPair<int> *key_and_page){
 	// keyIndex = last key index
 	int keyIndex = INTARRAYNONLEAFSIZE - 1;
-	// Traverse through non leaf node from end to front to find last key in node
+
+	// Traverse node's page array from end to front to find last valid key
 	while((keyIndex >= 0) && (Node_nonleaf->pageNoArray[keyIndex] == 0)){
 		keyIndex--;
 	}
-	/* Traverse through non leaf node from end to front to find which index of the key
-	 is the key bigger than the left keys of the node.
-	 Do this while shifting all the indeces to the right.
 
-	*/
+	// Traverse through non leaf node from end to front to find which index of the key is the key 
+	// bigger than the left keys of the node.
+	// We also shift all the indeces to the right so that there is space to add the new key pair.
 	while((keyIndex > 0) && (Node_nonleaf->keyArray[keyIndex - 1] > key_and_page->key)){
-		Node_nonleaf -> keyArray[keyIndex] = Node_nonleaf -> keyArray[keyIndex - 1];
-		Node_nonleaf -> pageNoArray[keyIndex + 1] = Node_nonleaf -> pageNoArray[keyIndex];
+		Node_nonleaf->keyArray[keyIndex] = Node_nonleaf->keyArray[keyIndex - 1];
+		Node_nonleaf->pageNoArray[keyIndex + 1] = Node_nonleaf->pageNoArray[keyIndex];
 		keyIndex--;
 	}
+	
 	// Insert in key and page number into that index
 	Node_nonleaf -> keyArray[keyIndex] = key_and_page->key;
 	Node_nonleaf -> pageNoArray[keyIndex + 1] = key_and_page->pageNo;
@@ -268,18 +289,22 @@ void BTreeIndex::insert_into_nonleaf(NonLeafNodeInt *Node_nonleaf, PageKeyPair<i
 
 void BTreeIndex::insert_into_leaf(LeafNodeInt node, RIDKeyPair<int> data_to_enter){
 	int i = INTARRAYLEAFSIZE;
+
 	// Traverse the node to find the first slot
 	while((i > 0) && (node.ridArray[i].page_number == 0)){
 		i--;
 	}
-	// Shifting all keys and records to the right of where data is entered
-	while((i>=0)&&(data_to_enter.key <= node.keyArray[i])){
+
+	// Shifts all keys and records to the right to make space for the data being entered
+	while((i >= 0) && (data_to_enter.key <= node.keyArray[i])){
 		node.keyArray[i + 1] = node.keyArray[i];
 		node.ridArray[i + 1] = node.ridArray[i];
 		i--;
 	}
-	node.keyArray[i+1] = data_to_enter.key;
-	node.ridArray[i+1] = data_to_enter.rid;
+
+	// Insert the data into the leaf node
+	node.keyArray[i + 1] = data_to_enter.key;
+	node.ridArray[i + 1] = data_to_enter.rid;
 }
 
 void BTreeIndex::split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old, PageKeyPair<int> *&child_data){
@@ -324,36 +349,10 @@ void BTreeIndex::split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old
 		node_old.pageNoArray[i + 1] = static_cast<PageId>(0);
 	}
 	node_new->level = node_old.level;
-
-	// If the key we want to insert is less than the 1st entry in node_new then it belongs to node_old.
-	// Otherwise it belongs to node_new.
-	// We use insert_into_nonleaf to find the right spot in the node to put in the key/pageid
-	if(child_data->key < node_new->keyArray[0]){
-		/* Inserting the key and child data into the "right" node and pushing the first key of this node
-		to be the parent node */
-		insert_into_nonleaf(&node_old, child_data);
-		pushupNonLeaf(page_num_old, newNum, node_old.keyArray[middle_key]);
-		// Correcting node to not include first key and pageid
-		node_old.pageNoArray[middle_key] = static_cast<PageId>(0);
-		node_old.keyArray[middle_key] = 0;
-	}
-	else if(child_data->key >= node_new->keyArray[0]){
-		/* Inserting the key and child data into the "right" node and pushing the first key of this node
-		to be the parent node */
-		insert_into_nonleaf(node_new, child_data);
-		pushupNonLeaf(page_num_old,newNum,node_new->pageNoArray[0]);
-		// Correcting node to not include first key and pageid
-		node_old.pageNoArray[0] = static_cast<PageId>(0);
-		node_old.keyArray[0] = 0;
-		// Shifting all pages and keys to the left
-		for(int i=1;i<INTARRAYNONLEAFSIZE;i++) {
-			if(node_old.keyArray[i]!=0){
-				node_old.pageNoArray[i]=node_old.pageNoArray[i-1];
-				node_old.keyArray[i]=node_old.keyArray[i-1];
-				}
-			i--;
-		}
-	}
+	child_data->pageNo = node_old.pageNoArray[middle_key];
+	child_data->key = node_old.keyArray[middle_key-1];
+	node_old.pageNoArray[middle_key] = static_cast<PageId>(0);
+	node_old.keyArray[middle_key] = 0;
 	// child_data = &pagekeypair_for_root;
 
 	// Unpins the pages that we don't need anymore, including the new page we just made.
@@ -363,47 +362,47 @@ void BTreeIndex::split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old
 	//splitting becomes tricky when we are at root.
 	//if we split at root then the old root (node_old) is not the true root
 	//if we are splitting at the root, then we must update root
-
-	// if(page_num_old == rootPageNum) {
-	// 	pushupNonLeaf(page_num_old, *child_data);
-	// }
+	if(page_num_old == rootPageNum)
+	{
+		rootChange(page_num_old, newNum, child_data->key);
+	}
 }
 
 // Switch this to root only and make another for other cases
-void BTreeIndex::pushupNonLeaf(PageId left_page_id, PageId right_page_id, int key)
+void BTreeIndex::rootChange(PageId left_page_id, PageId right_page_id, int key)
 {
-	/* Have to check if node has a parent we can just add the key to the parent node
-	If not then we create
-	*/
-	if() 
+	// create a new root page
+	Page *new_root;
+	PageId new_root_id; 
+	bufMgr->allocPage(file, new_root_id, new_root);
+	NonLeafNodeInt *new_parent_node = (NonLeafNodeInt *)new_root;
 	
-	
-	
-	Page *new_parent;
-	PageId new_parent_id; 
-	bufMgr->allocPage(file, new_parent_id, new_parent);
-	NonLeafNodeInt *new_parent_node = (NonLeafNodeInt *)new_parent;
-	
+	// integrate into tree
 	new_parent_node->pageNoArray[0]= left_page_id;
 	new_parent_node->pageNoArray[1] = right_page_id;
 	new_parent_node->keyArray[0] = key;
 	new_parent_node->level = 0;
-	// Not for root
-	if (left_page_id == rootPageNum || right_page_id == rootPageNum) {
-		rootPageNum = new_parent_id;
-		Page *meta_page;
-		bufMgr->readPage(file, headerPageNum, meta_page);
-		IndexMetaInfo *metaInfoPage = (IndexMetaInfo *)meta_page;
-  		metaInfoPage->rootPageNo = new_parent_id;
+	
+	// book keeping 
+	rootPageNum = new_root_id;
+	Page *meta_page;
+	bufMgr->readPage(file, headerPageNum, meta_page);
+	IndexMetaInfo *metaInfoPage = (IndexMetaInfo *)meta_page;
+	metaInfoPage->rootPageNo = new_root_id;
 
-		bufMgr->unPinPage(file, headerPageNum, true);
-		// Does the root just created, dirty?
-		bufMgr->unPinPage(file, rootPageNum, true);
-	}
+	// unpin pages
+	bufMgr->unPinPage(file, headerPageNum, true);
+	bufMgr->unPinPage(file, rootPageNum, true);
+	
 }
 
 // This needs to be updated to how nonleaf is made
-void BTreeIndex::split_leaf_node(LeafNodeInt node_old, PageId page_num_old, PageKeyPair<int> *&child_data, const RIDKeyPair<int> current_data_to_enter){
+void BTreeIndex::split_and_insert_leaf_node(
+	LeafNodeInt node_old, 
+	PageId page_num_old, 
+	PageKeyPair<int> *&child_data, 
+	const RIDKeyPair<int> current_data_to_enter)
+{
 	// We are initializing
 	PageId newNum;
 	Page* newP;
@@ -428,7 +427,7 @@ void BTreeIndex::split_leaf_node(LeafNodeInt node_old, PageId page_num_old, Page
 		nullRecord.page_number = 0;
 		nullRecord.slot_number = 0;
 		nullRecord.padding = 0;
-		node_old.ridArray[i + 1] = nullRecord;
+		node_old.ridArray[i] = nullRecord;
 	}
 
 	// If the key we want to insert is less than the 1st entry in node_new then it belongs to node_old.
@@ -436,22 +435,18 @@ void BTreeIndex::split_leaf_node(LeafNodeInt node_old, PageId page_num_old, Page
 	// We use insert_into_nonleaf to find the right spot in the node to put in the key/pageid
 	if(current_data_to_enter.key < node_new->keyArray[0]){
 		insert_into_leaf(node_old, current_data_to_enter);
+		child_data->pageNo = newNum;
+		child_data->key = node_old.keyArray[middle_key-1];
 	}
 	else if(current_data_to_enter.key >= node_new->keyArray[0]){
 		insert_into_leaf(*node_new, current_data_to_enter);
+		child_data->pageNo = newNum;
+		child_data->key=node_new->keyArray[0];
+		// then shift everything to the left
 	}
 	
 	node_new->rightSibPageNo = node_old.rightSibPageNo;
 	node_old.rightSibPageNo = newNum;
-
-	//splitting becomes tricky when we are at root.
-	//if we split at root then the old root (node_old) is not the true root
-	//if we are splitting at the root, then we must update root
-	if(page_num_old == rootPageNum) {
-		child_data = &pagekeypair_for_root;
-		// Needs to get updated to pushupNonLeaf
-		root_change(page_num_old, *child_data);
-	}
 
 	// Unpins the pages that we don't need anymore, including the new page we just made.
 	bufMgr->unPinPage(file, page_num_old, true);
@@ -574,9 +569,6 @@ void BTreeIndex::scanNext(RecordId& outRid)
 	page number value from the current leaf to move on to the next leaf which holds
 	successive key values for the scan.
 	*/
-
-	// NOTE: I'm not sure how to "unpin" a page. I assume if there were a funciton that
-	// did that, then you would do it in the second if statement (nextEntry >= leafRidLength).
 	
 	if(nextEntry < 0) throw IndexScanCompletedException();
 	if(!scanExecuting) throw ScanNotInitializedException();
@@ -600,7 +592,6 @@ void BTreeIndex::scanNext(RecordId& outRid)
 		bufMgr->readPage(file, nextPage, currentPageData);
 		nextEntry = 0;
 
-		// I'm getting recursive here. Not sure if I did the & right
 		// The idea is we redo the process now that the next page is set.
 		scanNext(outRid); 
 		return;

@@ -414,30 +414,30 @@ class BTreeIndex {
   NonLeafNodeInt getNonLeafNodeFromPage(PageId pageId);
 
   /**
+   * This function searches for the right leaf node to insert current_data_to_enter into. It will recursively
+   * edit the structure of the B+ tree if necessary.
    * 
-   * 
-   * @param Page_currently 
-   * @param Page_number_currently 
-   * @param is_leaf 
-   * @param current_data_to_enter
-   * @param child_data
+   * @param Page_currently The page that the search is currently on (to be casted into a node).
+   * @param is_leaf Whether or not the node that we are investigating is a leaf node.
+   * @param current_data_to_enter The RIDKeyPair that we want to insert into the B+ tree.
+   * @param child_data The potential KeyPagePair that could be pushed up in case the B+ tree structure requires a split.
    */
-  void search(Page *Page_currently, PageId Page_number_currently, bool is_leaf, const RIDKeyPair<int> current_data_to_enter, PageKeyPair<int> *&child_data);
+  void search(Page* Page_currently, bool is_leaf, const RIDKeyPair<int> current_data_to_enter, PageKeyPair<int> *&child_data);
 
   /**
-   * The NextNonLeafNode grabs the current node and traverses through it's key array.
-   * It then compares them to the current key to find the appropriate page id to find the right nonleaf node
+   * Grabs the current node and traverses through it's key array. It then compares them to the current key to 
+   * find the appropriate page id to find the right nonleaf node during a search and insert operation.
    * 
-   * @param Node_currently 
-   * @param node_next_number 
-   * @param key 
+   * @param Node_currently The current non leaf node.
+   * @param node_next_number The pageId of the next node to go to.
+   * @param key The key to compare to.
    */
-  void NextNonLeafNode(NonLeafNodeInt *Node_currently, PageId &node_next_number, int key);
+  void nextNonLeafNode(NonLeafNodeInt *Node_currently, PageId &node_next_number, int key);
 
 
   /**
-   * The insert_into_nonLeaf function searches through the given nonleaf to find the correct spot to enter in key and pageid.
-   * The keys and pageids after the key are shifted too.
+   * The insert_into_nonLeaf function searches through the given nonleaf to find the correct spot to enter in key and pageid 
+   * (in regards to the search and insert algorithm). The keys and pageids after the key are shifted too.
    * 
    * @param Node_nonleaf 
    * @param key_and_page 
@@ -445,13 +445,18 @@ class BTreeIndex {
   void insert_into_nonleaf(NonLeafNodeInt *Node_nonleaf, PageKeyPair<int> *key_and_page);
 
   /**
-   * @brief Properly splits a nonleaf node when its occupancy is full, and inserts a new provided value.
+   * @brief Properly splits a leaf node when its occupancy is full, and inserts a new provided value.
    * 
-   * @param node_old The NonLeafNodeInt to split.
+   * @param node_old The leaf node to split.
    * @param page_num_old The page number of the node to split.
-   * @param child_data The page and key pair to insert.
+   * @param child_data The page and key pair that's being pushed up.
+   * @param current_data_to_enter The rid key pair that should be inserted in this process.
   */
-  void split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old, PageKeyPair<int> *&child_data);
+  void split_and_insert_leaf_node(
+    LeafNodeInt node_old, 
+    PageId page_num_old, 
+    PageKeyPair<int> *&child_data, 
+    RIDKeyPair<int> current_data_to_enter);
 
   /**
    * @brief 
@@ -461,6 +466,14 @@ class BTreeIndex {
    */
   void insert_into_leaf(LeafNodeInt node, RIDKeyPair<int> data_to_enter);
   
+  /**
+   * @brief 
+   * 
+   * @param node 
+   * @param data_to_enter 
+   */
+  void split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old, PageKeyPair<int> *&child_data);
+
   /**
    * @brief 
    * 
@@ -479,7 +492,7 @@ class BTreeIndex {
    * @param key
    * @param push_up_data
    */
-  void pushupNonLeaf(PageId left_page_id, PageId right_page_id, int key);
+  void rootChange(PageId left_page_id, PageId right_page_id, int key);
 };
 
 }
