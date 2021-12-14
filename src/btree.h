@@ -169,15 +169,15 @@ struct NonLeafNodeInt {
   /**
    * Stores keys.
    */
-	int keyArray[ INTARRAYNONLEAFSIZE ];
+	int keyArray[ INTARRAYNONLEAFSIZE ] = {0};
 
   /**
    * Stores page numbers of child pages which themselves are other non-leaf/leaf nodes in the tree.
    */
-	PageId pageNoArray[ INTARRAYNONLEAFSIZE + 1 ];
+	PageId pageNoArray[ INTARRAYNONLEAFSIZE + 1 ] = {static_cast<PageId>(0)};
 };
 
-
+// memset(pageNoArray, (PageId) 0, sizeof(pageNoArray))
 /**
  * @brief Structure for all leaf nodes when the key is of INTEGER type.
 */
@@ -185,12 +185,12 @@ struct LeafNodeInt{
   /**
    * Stores keys.
    */
-	int keyArray[ INTARRAYLEAFSIZE ];
+	int keyArray[ INTARRAYLEAFSIZE ] = {0};
 
   /**
    * Stores RecordIds.
    */
-	RecordId ridArray[ INTARRAYLEAFSIZE ];
+	RecordId ridArray[ INTARRAYLEAFSIZE ]; //= { {0, 0, 0} };
 
   /**
    * Page number of the leaf on the right side.
@@ -418,11 +418,11 @@ class BTreeIndex {
    * edit the structure of the B+ tree if necessary.
    * 
    * @param Page_currently The page that the search is currently on (to be casted into a node).
-   * @param is_leaf Whether or not the node that we are investigating is a leaf node.
+   * @param is_leaf Whether or not Page_currently is a leaf node.
    * @param current_data_to_enter The RIDKeyPair that we want to insert into the B+ tree.
    * @param child_data The potential KeyPagePair that could be pushed up in case the B+ tree structure requires a split.
    */
-  void search(Page* Page_currently, bool is_leaf, const RIDKeyPair<int> current_data_to_enter, PageKeyPair<int> *&child_data);
+  void search_and_insert(Page* Page_currently, bool is_leaf, const RIDKeyPair<int> current_data_to_enter, PageKeyPair<int> *&child_data);
 
   /**
    * Grabs the current node and traverses through it's key array. It then compares them to the current key to 
@@ -432,7 +432,7 @@ class BTreeIndex {
    * @param node_next_number The pageId of the next node to go to.
    * @param key The key to compare to.
    */
-  void nextNonLeafNode(NonLeafNodeInt *Node_currently, PageId &node_next_number, int key);
+  void nextCorrectChild(NonLeafNodeInt *Node_currently, PageId &node_next_number, int key);
 
 
   /**

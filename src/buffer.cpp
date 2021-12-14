@@ -125,6 +125,7 @@ void BufMgr::readPage(File* file, const PageId pageNo, Page*& page)
   FrameId frameNo = 0;
 	try
 	{
+		std::cout << "		  was in the buffer pool" << std::endl;
   	hashTable->lookup(file, pageNo, frameNo);
 
     // set the referenced bit
@@ -134,6 +135,8 @@ void BufMgr::readPage(File* file, const PageId pageNo, Page*& page)
   }
   catch(const HashNotFoundException &e) //not in the buffer pool, must allocate a new page
   {
+		std::cout << "		  holy cow it wasn't in the buffer pool" << std::endl;
+    
     // alloc a new frame
     allocBuf(frameNo);
 
@@ -172,19 +175,24 @@ void BufMgr::allocPage(File* file, PageId &pageNo, Page*& page)
 {
   FrameId frameNo;
 
+  std::cout << "fug" << std::endl;
   // alloc a new frame
   allocBuf(frameNo);
+  std::cout << "alloc buf" << std::endl;
 
   // allocate a new page in the file
 	//std::cerr << "buffer data size:" << bufPool[frameNo].data_.length() << "\n";
   bufPool[frameNo] = file->allocatePage(pageNo);
   page = &bufPool[frameNo];
+  std::cout << "alloc page" << std::endl;
 
   // set up the entry properly
   bufDescTable[frameNo].Set(file, pageNo);
+  std::cout << "bufdesctable set" << std::endl;
 
   // insert in the hash table
   hashTable->insert(file, pageNo, frameNo);
+  std::cout << "hash table insert" << std::endl;
 }
 
 void BufMgr::flushFile(const File* file) 

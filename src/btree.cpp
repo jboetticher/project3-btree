@@ -43,67 +43,85 @@ BTreeIndex::BTreeIndex(const std::string & relationName,
 	std::string indexName = idxStr.str(); // indexName is the name of the index file
 	outIndexName = indexName;
 
+  	std::cout << "	Index file name discovered: " << outIndexName << std::endl;
+
 	// If indexName exists, then the file is opened.
 	try {
+		// try opening file
 		BlobFile bf = BlobFile::open(indexName);
+  		std::cout << "	Index file exists, attempting file open." << std::endl;
+
+		// file exists:
 		file = &bf;
-		// ERROR: undefined. meant to be a field?
 		headerPageNum = file->getFirstPageNo();
 		
+  		std::cout << "	Reading meta info from index file." << std::endl;
 		// read meta info (btree.h:108)
 		Page *metaPage;
 		bufMgr->readPage(file, headerPageNum, metaPage);
+
+		// TODO: we have to insert this data in as a root
 		IndexMetaInfo metaInfo = *reinterpret_cast<IndexMetaInfo*>(metaPage);
-		headerPageNum = metaInfo.rootPageNo;
+		headerPageNum = metaPage->page_number();
+		rootPageNum = metaInfo.rootPageNo;
+		std::cout << "	Root page number as definied in IndexMetaInfo: " << metaInfo.rootPageNo << std::endl;
 	}
 	// If index file doesn't already exist, create new file.
 	catch(FileNotFoundException const&) {
-		BlobFile bf = BlobFile::create(indexName);
-		file = &bf;
+		std::cout << "	Index file doesn't already exist, creating new file" << std::endl;
+		//BlobFile bf = BlobFile::create(indexName);
+		//file = &bf;
+		file = new BlobFile(outIndexName, true);
 		
-		// initialize meta info page
+		// First we allocate a meta page.
+		PageId metaPageId;
+		Page* metaPage;
+		bufMgr->allocPage(file, metaPageId, metaPage);
+
+		// Then initialize root node so that its data can be put into the IndexMetaInfo.
+		Page* rootPage;
+		bufMgr->allocPage(file, rootPageNum, rootPage);
+		NonLeafNodeInt rootNode;
+		rootNode.level = 1;
+		//rootNode.pageNoArray = {0}; 
+		//rootNode.keyArray = {0};
+		*rootPage = *reinterpret_cast<Page*>(&rootNode);
+
+		// Now set information to the meta page and write to disk.
 		IndexMetaInfo newInfo;
 		strcpy(newInfo.relationName, relationName.c_str());
 		newInfo.attrByteOffset = attrByteOffset;
 		newInfo.attrType = attrType;
-		newInfo.rootPageNo = 1;
-		rootPageNum = 1;
-
-		// read meta info page to file
-		Page* metaPage = reinterpret_cast<Page*>(&newInfo);
-		file->writePage(0, *metaPage);
-
-		// initialize root node
-		NonLeafNodeInt* rootNode;
-		rootNode->level = 1;
+		newInfo.rootPageNo = rootPageNum;
+		*metaPage = *reinterpret_cast<Page*>(&newInfo);
 		
-		Page* rootPage;
-		bufMgr->allocPage(file, rootPageNum, rootPage);
-		*rootPage = *reinterpret_cast<Page*>(rootNode);
-
-		// = (Page*) &rootNode;
 		// file->writePage(1, *rootPage);
 	}
 
-
+	std::cout << "	File majiggery finished." << std::endl;
 
 	// the constructor should scan relationName and insert entries
 	// for all of the tuples in the relation into the index
+	std::cout << "	Creating file scan." << std::endl;
 	FileScan scan(relationName, bufMgr);
 	try {
 		RecordId nextRec;
 
 		while(true) {
+			std::cout << "	Scanning next..." << std::endl;
 			scan.scanNext(nextRec);
 			
 			// --- The following is taken from main.cpp:121 ---
 			// Assuming RECORD.keyIndex is our key, lets extract the key, which we know is 
 			// INTEGER and whose byte offset is also know inside the record. 
+			std::cout << "	Getting record..." << std::endl;
 			std::string recordStr = scan.getRecord();
 			const char *record = recordStr.c_str();
 			int key = attrByteOffset + *reinterpret_cast<const int*>(record); // offsetof (attributeType, keyIndex)));
 			
+			std::cout << "	Starting Inserting key..." << std::endl;
 			insertEntry(&key, nextRec);
+			std::cout << "	Finished Inserting key." << std::endl;
 		}
 	}
 	catch(EndOfFileException const&) {
@@ -171,40 +189,90 @@ void BTreeIndex::insertEntry(const void *key, const RecordId rid)
 	current_data_to_enter.set(rid, *((int *)key));
 
 	// We start our search at the root.
+	std::cout << "		bufMgr:" << bufMgr << std::endl;
 	Page* rootPage;
 	bufMgr->readPage(file, rootPageNum, rootPage);
-	bool is_leaf = getRootNode().level == 1;
+	// bool is_leaf = getRootNode().level == 1;
   	PageKeyPair<int> *child_data = nullptr;
+	std::cout << "		Going to start searching" << std::endl;
 
-	// Begin search & insert
-	search(rootPage, is_leaf, current_data_to_enter, child_data);
+	// create new leaf children for root if they don't exist yet
+	NonLeafNodeInt* rootNode = reinterpret_cast<NonLeafNodeInt*>(rootPage);
+	//std::cout << "		rootNode->pageNoArray[0]:" << rootNode->pageNoArray[0] << std::endl;
+	//std::cout << "		rootNode->pageNoArray[1]:" << rootNode->pageNoArray[1] << std::endl;
+	//std::cout << "		rootNode->pageNoArray[2]:" << rootNode->pageNoArray[2] << std::endl;
+	if (rootNode->pageNoArray[0] == 0) {
+		// initialize
+		std::cout << "		Initializing root page children" << std::endl;
+		rootNode->keyArray[0] = *reinterpret_cast<const int*>(key);
+		std::cout << "		rootPageNum:" << rootPageNum << std::endl;
+		Page* left_leaf_page;
+		PageId left_leaf_id;
+		
+		std::cout << "		bufMgr:" << bufMgr << std::endl;
+		bufMgr->allocPage(file, left_leaf_id, left_leaf_page);
 	
+		Page* right_leaf_page;
+		PageId right_leaf_id;
+		bufMgr->allocPage(file, right_leaf_id, right_leaf_page);
+		std::cout << "		right leaf id:" << right_leaf_id << std::endl;
+		LeafNodeInt right_leaf;
+		*right_leaf_page = *reinterpret_cast<Page*>(&right_leaf);
+
+		std::cout << "		left leaf id:" << left_leaf_id << std::endl;
+		LeafNodeInt left_leaf;
+		left_leaf.keyArray[0] = *reinterpret_cast<const int*>(key);
+		left_leaf.ridArray[0] = rid;
+		left_leaf.rightSibPageNo = right_leaf_id;
+		*left_leaf_page = *reinterpret_cast<Page*>(&left_leaf);
+
+		rootNode->pageNoArray[0] = left_leaf_id;
+		rootNode->pageNoArray[1] = right_leaf_id;
+		
+		std::cout << "		sanity check: " << rootNode->pageNoArray[1] << std::endl;
+
+		// Deallocate these pages like we do everywhere else
+		bufMgr->unPinPage(file, right_leaf_id, true);
+		bufMgr->unPinPage(file, left_leaf_id, true);
+	} 
+	else {
+		// Begin search & insert
+		search_and_insert(rootPage, false, current_data_to_enter, child_data); 
+		std::cout << "		One search completed" << std::endl;
+	}
 }
 
-void BTreeIndex::search(
+void BTreeIndex::search_and_insert(
 	Page* Page_currently, 
 	bool is_leaf, 
 	const RIDKeyPair<int> current_data_to_enter, 
 	PageKeyPair<int> *&child_data)
 {
-	// NOTE: 	should be potentially renamed search_and_insert, or something along those lines. Readers
-	// 			may initially assume that this is just scanning, instead of also writing.
 	PageId pageId_currently = Page_currently->page_number();
-	
-	// If this is a nonleaf node, then we have to drill down through its children to keep searching 
-	// for the right leaf node.
-	if(!is_leaf) {
+
+	// If the current nodes are all nonleaf nodes, there are two cases:
+	if (!is_leaf) {
+		std::cout << "		Not a leaf node! Attempting cast." << std::endl;
 		NonLeafNodeInt *Node_currently = reinterpret_cast<NonLeafNodeInt *>(Page_currently);
+		
+		// We have to drill down through its children to keep searching for the parent of the leaf
+	
 		Page *page_next;
 		PageId node_next_number;
 		
 		// Finds which child node key belongs to and sets it to node_next_number
-		nextNonLeafNode(Node_currently, node_next_number, current_data_to_enter.key);
+		std::cout << "		Finding the next correct child." << std::endl;
+		nextCorrectChild(Node_currently, node_next_number, current_data_to_enter.key);
+		
+		std::cout << "		Reading the next correct child's page: " << node_next_number << std::endl;
 		bufMgr->readPage(file, node_next_number, page_next);
-		is_leaf = Node_currently->level == 1;
+		std::cout << "		Recognizing child as leaf." << std::endl;
+		bool child_is_leaf = Node_currently->level == 1;
 
 		// Recursive search to until the leaf node
-		search(page_next, is_leaf, current_data_to_enter, child_data);
+		std::cout << "		We asked for " << node_next_number << ", and got: " << page_next->page_number() << std::endl; // the problem: page is never written to
+		std::cout << "		Beginning recursive search & insert." << std::endl;
+		search_and_insert(page_next, child_is_leaf, current_data_to_enter, child_data);
 
 		// If child_data is null, then there is no pushup from a split_leaf_node.
 		// Otherwise, the child_data must be updated.
@@ -227,14 +295,20 @@ void BTreeIndex::search(
 			bufMgr->unPinPage(file, pageId_currently, false);
 		}
 	}
-
-	// When we find the proper leaf node, we insert into it
+	// When we are at the proper leaf node, we can insert into it
 	else {
+		std::cout << "		Leaf node found. Attempting cast for pageId " << pageId_currently << std::endl;
 		LeafNodeInt *leaf_node = reinterpret_cast<LeafNodeInt *>(pageId_currently);
+		std::cout << "		Cast finished pretty please." << std::endl;
 		
 		// If it's not full then just insert into leaf node
-		if (leaf_node->ridArray[INTARRAYLEAFSIZE - 1].page_number == 0)
+		std::cout << "		what's that leaf node? " << &leaf_node << std::endl;
+		std::cout << "			rightsib " << leaf_node->rightSibPageNo << std::endl;
+		std::cout << "			keyArray: " << &(leaf_node->keyArray) << std::endl;
+		//std::cout << "		what's that rid value? " << leaf_node->ridArray[INTARRAYLEAFSIZE - 1].page_number << std::endl;
+		if (leaf_node->keyArray[INTARRAYLEAFSIZE - 1] == 0)
 		{
+			std::cout << "		Not full and trying to insert data into leaf" << std::endl;
 			insert_into_leaf(*leaf_node, current_data_to_enter);
 			bufMgr->unPinPage(file, pageId_currently, true);
 
@@ -242,17 +316,17 @@ void BTreeIndex::search(
 			// nonleaf nodes, and there is nothing being pushed up.
 			child_data = nullptr;
 		}
-
 		// Otherwise we will need to use the split algorithm. This will cause a value to be
 		// pushed up, meaning that child_data will not be null.
 		else {
+			std::cout << "		Attempting to splot leaf node" << std::endl;
 			split_and_insert_leaf_node(*leaf_node, pageId_currently, child_data, current_data_to_enter);
 		}
 	}
 }
 
-void BTreeIndex::nextNonLeafNode(NonLeafNodeInt *Node_currently, PageId &child_pageId, int key){ // get non leaf child
-	int keyIndex = nodeOccupancy - 1;
+void BTreeIndex::nextCorrectChild(NonLeafNodeInt *Node_currently, PageId &child_pageId, int key){ // get non leaf child
+	int keyIndex = INTARRAYNONLEAFSIZE - 1;
 	// We traverse through the current node to find the last full key slot
 	while((keyIndex >= 0) && (Node_currently->pageNoArray[keyIndex] == 0)) {
 		keyIndex--;
@@ -288,10 +362,10 @@ void BTreeIndex::insert_into_nonleaf(NonLeafNodeInt *Node_nonleaf, PageKeyPair<i
 }
 
 void BTreeIndex::insert_into_leaf(LeafNodeInt node, RIDKeyPair<int> data_to_enter){
-	int i = INTARRAYLEAFSIZE;
+	int i = INTARRAYLEAFSIZE-1;
 
 	// Traverse the node to find the first slot
-	while((i > 0) && (node.ridArray[i].page_number == 0)){
+	while((i > 0) && (node.keyArray[i] == 0)){
 		i--;
 	}
 
@@ -315,7 +389,7 @@ void BTreeIndex::split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old
 	NonLeafNodeInt *node_new = reinterpret_cast<NonLeafNodeInt *>(newP);
 	// INTARRAYNONLEAFSIZE might be accessible form namespace. We have to check through compiler
 	int middle_key = INTARRAYNONLEAFSIZE / 2;
-	PageKeyPair<int> pagekeypair_for_root;
+	//PageKeyPair<int> pagekeypair_for_root;
 
 	// NOTE: could you explain why node_old.keyArray[middle_key] is the right value?
 
@@ -410,10 +484,10 @@ void BTreeIndex::split_and_insert_leaf_node(
 	LeafNodeInt *node_new = reinterpret_cast<LeafNodeInt *>(newP);
 	// INTARRAYLEAFSIZE might be accessible form namespace. We have to check through compiler
 	int middle_key = INTARRAYLEAFSIZE / 2;
-	PageKeyPair<int> pagekeypair_for_root;
+	// PageKeyPair<int> pagekeypair_for_root;
 
 	// NOTE: could you explain why node_old.keyArray[middle_key] is the right value?
-	pagekeypair_for_root.set(newNum, node_old.keyArray[middle_key]);
+	// pagekeypair_for_root.set(newNum, node_old.keyArray[middle_key]);
 
 	for(int i = middle_key; i < INTARRAYLEAFSIZE; i++){
 		// the last full pointer in node_new is missing
