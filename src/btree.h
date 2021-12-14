@@ -59,6 +59,12 @@ const  int INTARRAYNONLEAFSIZE = ( Page::SIZE - sizeof( int ) - sizeof( PageId )
 const  int d = (INTARRAYNONLEAFSIZE / 2);
 
 /**
+ * @brief default value for non-initalized slots in nodes
+ * 
+ */
+const int EMPTYSLOT = 0;
+
+/**
  * @brief Structure to store a key-rid pair. It is used to pass the pair to functions that 
  * add to or make changes to the leaf node pages of the tree. Is templated for the key member.
  */
@@ -169,12 +175,12 @@ struct NonLeafNodeInt {
   /**
    * Stores keys.
    */
-	int keyArray[ INTARRAYNONLEAFSIZE ] = {0};
+	int keyArray[ INTARRAYNONLEAFSIZE ] = {EMPTYSLOT};
 
   /**
    * Stores page numbers of child pages which themselves are other non-leaf/leaf nodes in the tree.
    */
-	PageId pageNoArray[ INTARRAYNONLEAFSIZE + 1 ] = {static_cast<PageId>(0)};
+	PageId pageNoArray[ INTARRAYNONLEAFSIZE + 1 ] = {static_cast<PageId>(EMPTYSLOT)};
 };
 
 // memset(pageNoArray, (PageId) 0, sizeof(pageNoArray))
@@ -185,7 +191,7 @@ struct LeafNodeInt{
   /**
    * Stores keys.
    */
-	int keyArray[ INTARRAYLEAFSIZE ] = {0};
+	int keyArray[ INTARRAYLEAFSIZE ] = {EMPTYSLOT};
 
   /**
    * Stores RecordIds.
@@ -422,7 +428,7 @@ class BTreeIndex {
    * @param current_data_to_enter The RIDKeyPair that we want to insert into the B+ tree.
    * @param child_data The potential KeyPagePair that could be pushed up in case the B+ tree structure requires a split.
    */
-  void search_and_insert(Page* Page_currently, bool is_leaf, const RIDKeyPair<int> current_data_to_enter, PageKeyPair<int> *&child_data);
+  void search_and_insert(Page* Page_currently, PageId pageId_currently, bool is_leaf, const RIDKeyPair<int> current_data_to_enter, PageKeyPair<int> *&child_data);
 
   /**
    * Grabs the current node and traverses through it's key array. It then compares them to the current key to 
@@ -453,7 +459,7 @@ class BTreeIndex {
    * @param current_data_to_enter The rid key pair that should be inserted in this process.
   */
   void split_and_insert_leaf_node(
-    LeafNodeInt node_old, 
+    LeafNodeInt* node_old, 
     PageId page_num_old, 
     PageKeyPair<int> *&child_data, 
     RIDKeyPair<int> current_data_to_enter);
@@ -464,7 +470,7 @@ class BTreeIndex {
    * @param node 
    * @param data_to_enter 
    */
-  void insert_into_leaf(LeafNodeInt node, RIDKeyPair<int> data_to_enter);
+  void insert_into_leaf(LeafNodeInt* node, RIDKeyPair<int> data_to_enter);
   
   /**
    * @brief 
@@ -472,17 +478,7 @@ class BTreeIndex {
    * @param node 
    * @param data_to_enter 
    */
-  void split_nonleaf_node(NonLeafNodeInt node_old, PageId page_num_old, PageKeyPair<int> *&child_data);
-
-  /**
-   * @brief 
-   * 
-   * @param node_old 
-   * @param page_num_old 
-   * @param child_data 
-   * @param current_data_to_enter 
-   */
-  void split_leaf_node(LeafNodeInt node_old, PageId page_num_old, PageKeyPair<int> *&child_data, const RIDKeyPair<int> current_data_to_enter);
+  void split_nonleaf_node(NonLeafNodeInt* node_old, PageId page_num_old, PageKeyPair<int> *&child_data);
 
   /**
    * @brief 
